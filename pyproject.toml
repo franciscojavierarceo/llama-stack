@@ -36,6 +36,7 @@ dependencies = [
     "rich",
     "setuptools",
     "termcolor",
+    "pymilvus>=2.5.4",
 ]
 
 [project.optional-dependencies]
