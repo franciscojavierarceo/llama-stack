@@ -86,7 +86,7 @@ LLAMA_STACK_CONFIG=
 
 And then use this dotenv file when running client SDK tests via the following:
 ```bash
-uv run --env-file .env -- pytest -v tests/api/inference/test_text_inference.py
+uv run --env-file .env -- pytest -v tests/integration/inference/test_text_inference.py
 ```
 
 ## Pre-commit Hooks
@@ -107,6 +107,22 @@ uv run pre-commit run --all-files
 
 > [!CAUTION]
 > Before pushing your changes, make sure that the pre-commit hooks have passed successfully.
+
+## Running unit tests
+
+You can run the unit tests by running:
+
+```bash
+source .venv/bin/activate
+./scripts/unit-tests.sh
+```
+
+If you'd like to run for a non-default version of Python (currently 3.10), pass `PYTHON_VERSION` variable as follows:
+
+```
+source .venv/bin/activate
+PYTHON_VERSION=3.13 ./scripts/unit-tests.sh
+```
 
 ## Adding a new dependency to the project
 
@@ -143,7 +159,7 @@ LLAMA_STACK_DIR=$(pwd) LLAMA_STACK_CLIENT_DIR=../llama-stack-client-python llama
 
 ### Updating Provider Configurations
 
-If you have made changes to a provider's configuration in any form (introducing a new config key, or changing models, etc.), you should run `python llama_stack/scripts/distro_codegen.py` to re-generate various YAML files as well as the documentation. You should not change `docs/source/.../distributions/` files manually as they are auto-generated.
+If you have made changes to a provider's configuration in any form (introducing a new config key, or changing models, etc.), you should run `./scripts/distro_codegen.py` to re-generate various YAML files as well as the documentation. You should not change `docs/source/.../distributions/` files manually as they are auto-generated.
 
 ### Building the Documentation
 
