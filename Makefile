@@ -10,6 +10,7 @@ PYTHON_VERSIONS := 3.10 3.11
 export INFERENCE_MODEL="meta-llama/Llama-3.2-3B-Instruct"
 export OLLAMA_INFERENCE_MODEL="llama3.2:3b-instruct-fp16"
 export LLAMA_STACK_PORT=8321
+export EMBEDDING_MODELS="all-MiniLM-L6-v2"
 
 build-dev:
 	uv sync --extra dev --extra test
@@ -37,7 +38,9 @@ test-sqlite-vec:
 
 test-ollama-vector-integration:
 	INFERENCE_MODEL=llama3.2:3b-instruct-fp16 LLAMA_STACK_CONFIG=ollama \
-	pytest -s -v tests/client-sdk/vector_io/test_vector_io.py
+	pytest -s -v tests/api/vector_io/ \
+	--stack-config=inference=sentence-transformers,vector_io=sqlite-vec \
+	--embedding-model=$EMBEDDING_MODELS
 
 serve-ollama:
 	ollama run $OLLAMA_INFERENCE_MODEL --keepalive 24h

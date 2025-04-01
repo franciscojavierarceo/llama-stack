@@ -22,23 +22,54 @@ from llama_stack_client.types.agent_create_params import AgentConfig
 
 from llama_stack.distribution.library_client import LlamaStackAsLibraryClient
 
+# Initialize the client
+client = LlamaStackAsLibraryClient("ollama")
+vector_db = "sqlite-vec"
+vector_db_id = f"test-vector-db-{uuid.uuid4().hex}"
+
+
+model_id = "llama3.2:3b-instruct-fp16"
+
+# Define the list of document URLs and create Document objects
+urls = [
+    "chat.rst",
+    "llama3.rst",
+    "memory_optimizations.rst",
+    "lora_finetune.rst",
+]
+
+
+def demo2():
+    _ = client.initialize()
+    client.vector_dbs.register(
+        provider_id=vector_db,
+        vector_db_id=vector_db_id,
+        embedding_model="all-MiniLM-L6-v2",
+        embedding_dimension=384,
+    )
+
+    rag_document = Document(
+        document_id="doc-sample-1",
+        content="This is a sample content.",
+        mime_type="text/plain",
+        metadata={"url": "https://www.example.com/", "test": "This is a test."},
+    )
+    client.tool_runtime.rag_tool.insert(
+        documents=[rag_document],
+        vector_db_id=vector_db_id,
+        chunk_size_in_tokens=200,
+    )
+    response = client.tool_runtime.rag_tool.query(
+        vector_db_ids=[vector_db_id],
+        content="What is the sample content?",
+    )
+    print(response)
+
+    client.vector_dbs.unregister(vector_db_id)
+
 
 def main():
-    # Initialize the client
-    client = LlamaStackAsLibraryClient("ollama")
-    vector_db_id = f"test-vector-db-{uuid.uuid4().hex}"
-
     _ = client.initialize()
-
-    model_id = "llama3.2:3b-instruct-fp16"
-
-    # Define the list of document URLs and create Document objects
-    urls = [
-        "chat.rst",
-        "llama3.rst",
-        "memory_optimizations.rst",
-        "lora_finetune.rst",
-    ]
     documents = [
         Document(
             document_id=f"num-{i}",
@@ -51,7 +82,7 @@ def main():
     # (Optional) Use the documents as needed with your client here
 
     client.vector_dbs.register(
-        provider_id="sqlite_vec",
+        provider_id=vector_db,
         vector_db_id=vector_db_id,
         embedding_model="all-MiniLM-L6-v2",
         embedding_dimension=384,
@@ -109,4 +140,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    demo2()
+    # main()
