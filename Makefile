@@ -34,6 +34,7 @@ fix-line-endings:
 	sed -i '' 's/\r$$//' llama_stack/distribution/common.sh
 	sed -i '' 's/\r$$//' llama_stack/distribution/build_venv.sh
 	sed -i '' 's/\r$$//' ./scripts/unit-tests.sh
+	sed -i '' 's/\r$$//' ./docs/openapi_generator/run_openapi_generator.sh
 
 test-sqlite-vec:
 	pytest tests/unit/providers/vector_io/test_sqlite_vec.py \
