@@ -11,12 +11,14 @@ export INFERENCE_MODEL="meta-llama/Llama-3.2-3B-Instruct"
 export OLLAMA_INFERENCE_MODEL="llama3.2:3b-instruct-fp16"
 export LLAMA_STACK_PORT=8321
 export EMBEDDING_MODELS="all-MiniLM-L6-v2"
+export LLAMA_STACK_CONFIG=ollama
 
 build-dev:
+	uv venv .venv
 	uv sync --extra dev --extra test
 	uv pip install -e .
 	. .venv/bin/activate
-	uv pip install sqlite-vec chardet datasets sentence_transformers pypdf
+	uv pip install sqlite-vec chardet datasets sentence_transformers pypdf faiss-cpu mcp autoevals
 
 build-ollama: fix-line-endings
 	llama stack build --template ollama --image-type venv
@@ -31,6 +33,7 @@ run-ollama:
 fix-line-endings:
 	sed -i '' 's/\r$$//' llama_stack/distribution/common.sh
 	sed -i '' 's/\r$$//' llama_stack/distribution/build_venv.sh
+	sed -i '' 's/\r$$//' ./scripts/unit-tests.sh
 
 test-sqlite-vec:
 	pytest tests/unit/providers/vector_io/test_sqlite_vec.py \
