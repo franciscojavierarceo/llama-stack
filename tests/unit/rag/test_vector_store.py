@@ -220,11 +220,17 @@ class TestVectorDBWithIndex:
             Chunk(content="Test 2", embedding=None, metadata={}),
         ]
 
-        mock_inference_api.embeddings.return_value.embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+        mock_inference_api.openai_embeddings.return_value.embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
 
         await vector_db_with_index.insert_chunks(chunks)
 
-        mock_inference_api.embeddings.assert_called_once_with("test-model without embeddings", ["Test 1", "Test 2"])
+        mock_inference_api.openai_embeddings.assert_called_once_with(
+            model="test-model without embeddings",
+            input=["Test 1", "Test 2"],
+            encoding_format="float",
+            dimensions=mock_vector_db.embedding_dimension,
+            user=None,
+        )
         mock_index.add_chunks.assert_called_once()
         args = mock_index.add_chunks.call_args[0]
         assert args[0] == chunks
@@ -292,7 +298,7 @@ class TestVectorDBWithIndex:
         with pytest.raises(ValueError, match="has dimension 4, expected 3"):
             await vector_db_with_index.insert_chunks(chunks_wrong_dim)
 
-        mock_inference_api.embeddings.assert_not_called()
+        mock_inference_api.openai_embeddings.assert_not_called()
         mock_index.add_chunks.assert_not_called()
 
     @pytest.mark.asyncio
@@ -313,12 +319,16 @@ class TestVectorDBWithIndex:
             Chunk(content="Test 3", embedding=None, metadata={}),
         ]
 
-        mock_inference_api.embeddings.return_value.embeddings = [[0.1, 0.1, 0.1], [0.3, 0.3, 0.3]]
+        mock_inference_api.openai_embeddings.return_value.embeddings = [[0.1, 0.1, 0.1], [0.3, 0.3, 0.3]]
 
         await vector_db_with_index.insert_chunks(chunks)
 
-        mock_inference_api.embeddings.assert_called_once_with(
-            "test-model with partial embeddings", ["Test 1", "Test 3"]
+        mock_inference_api.openai_embeddings.assert_called_once_with(
+            model="test-model with partial embeddings",
+            input=["Test 1", "Test 3"],
+            encoding_format="float",
+            dimensions=mock_vector_db.embedding_dimension,
+            user=None,
         )
         mock_index.add_chunks.assert_called_once()
         args = mock_index.add_chunks.call_args[0]

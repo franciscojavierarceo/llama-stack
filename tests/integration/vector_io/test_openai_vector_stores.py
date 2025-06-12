@@ -115,6 +115,7 @@ def test_openai_list_vector_stores(openai_client_with_empty_stores, client_with_
 
     # Check that our stores are in the list
     store_ids = [store.id for store in response.data]
+    # assert store0.id in store_ids
     assert store1.id in store_ids
     assert store2.id in store_ids
 

@@ -214,6 +214,8 @@ class VectorDBWithIndex:
     async def insert_chunks(
         self,
         chunks: list[Chunk],
+        encoding_format: str = "float",
+        user: str | None = None,
     ) -> None:
         chunks_to_embed = []
         for i, c in enumerate(chunks):
@@ -223,9 +225,12 @@ class VectorDBWithIndex:
                 _validate_embedding(c.embedding, i, self.vector_db.embedding_dimension)
 
         if chunks_to_embed:
-            resp = await self.inference_api.embeddings(
-                self.vector_db.embedding_model,
-                [c.content for c in chunks_to_embed],
+            resp = await self.inference_api.openai_embeddings(
+                model=self.vector_db.embedding_model,
+                input=[c.content for c in chunks_to_embed],
+                encoding_format=encoding_format,
+                dimensions=self.vector_db.embedding_dimension,
+                user=user,
             )
             for c, embedding in zip(chunks_to_embed, resp.embeddings, strict=False):
                 c.embedding = embedding

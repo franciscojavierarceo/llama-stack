@@ -166,12 +166,15 @@ class MilvusVectorIOAdapter(VectorIO, VectorDBsProtocolPrivate):
         vector_db_id: str,
         chunks: list[Chunk],
         ttl_seconds: int | None = None,
+        encoding_format: str | None = "float",
+        user: str | None = None,
     ) -> None:
         index = await self._get_and_cache_vector_db_index(vector_db_id)
         if not index:
             raise ValueError(f"Vector DB {vector_db_id} not found")
 
-        await index.insert_chunks(chunks)
+        actual_encoding = encoding_format if encoding_format is not None else "float"
+        await index.insert_chunks(chunks, encoding_format=actual_encoding, user=user)
 
     async def query_chunks(
         self,

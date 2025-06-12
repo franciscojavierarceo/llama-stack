@@ -409,12 +409,21 @@ class SQLiteVecVectorIOAdapter(VectorIO, VectorDBsProtocolPrivate):
 
         await asyncio.to_thread(_delete_vector_db_from_registry)
 
-    async def insert_chunks(self, vector_db_id: str, chunks: list[Chunk], ttl_seconds: int | None = None) -> None:
+    async def insert_chunks(
+        self,
+        vector_db_id: str,
+        chunks: list[Chunk],
+        ttl_seconds: int | None = None,
+        encoding_format: str | None = "float",
+        user: str | None = None,
+    ) -> None:
         if vector_db_id not in self.cache:
             raise ValueError(f"Vector DB {vector_db_id} not found. Found: {list(self.cache.keys())}")
         # The VectorDBWithIndex helper is expected to compute embeddings via the inference_api
         # and then call our index's add_chunks.
-        await self.cache[vector_db_id].insert_chunks(chunks)
+        actual_encoding = encoding_format if encoding_format is not None else "float"
+
+        await self.cache[vector_db_id].insert_chunks(chunks, encoding_format=actual_encoding, user=user)
 
     async def query_chunks(
         self, vector_db_id: str, query: Any, params: dict[str, Any] | None = None

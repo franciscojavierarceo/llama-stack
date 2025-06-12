@@ -7624,6 +7624,14 @@ components:
         ttl_seconds:
           type: integer
           description: The time to live of the chunks.
+        encoding_format:
+          type: string
+          description: >-
+            The format of the embedding, e.g., "float" or "base64".
+        user:
+          type: string
+          description: >-
+            The user who is inserting the chunks, used for telemetry.
       additionalProperties: false
       required:
         - vector_db_id

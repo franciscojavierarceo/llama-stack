@@ -133,6 +133,8 @@ class VectorIO(Protocol):
         vector_db_id: str,
         chunks: list[Chunk],
         ttl_seconds: int | None = None,
+        encoding_format: str | None = "float",
+        user: str | None = None,
     ) -> None:
         """Insert chunks into a vector database.
 
@@ -142,6 +144,8 @@ class VectorIO(Protocol):
             If `metadata` is provided, you configure how Llama Stack formats the chunk during generation.
             If `embedding` is not provided, it will be computed later.
         :param ttl_seconds: The time to live of the chunks.
+        :param encoding_format: The format of the embedding, e.g., "float" or "base64".
+        :param user: The user who is inserting the chunks, used for telemetry.
         """
         ...
 
