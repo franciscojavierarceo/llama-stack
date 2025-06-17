@@ -25,7 +25,7 @@ html[data-theme="dark"] .rst-content div[class^="highlight"] {
 }
 pre {
     white-space: pre-wrap !important;
-    word-break: break-all;
+    word-break: normal;
 }
 
 [data-theme="dark"] .mermaid {

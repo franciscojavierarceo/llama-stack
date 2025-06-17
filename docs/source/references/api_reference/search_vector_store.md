@@ -2,59 +2,27 @@
 
 Search a vector store for relevant chunks based on a query and file attributes filter.
 
-```{admonition} Endpoint
-:class: note
+:::{note}
 **POST** `https://api.openai.com/v1/vector_stores/{vector_store_id}/search`
-```
+:::
 
 ## Path parameters
 
-```{list-table}
-:header-rows: 1
-:widths: 20 10 70
-
-* - Parameter
-  - Type
-  - Description
-* - **vector_store_id**
-  - string
-  - **Required**. The ID of the vector store to search.
-```
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| **vector_store_id** | string | **Required**. The ID of the vector store to search. |
 
 ## Request body
 
-```{list-table}
-:header-rows: 1
-:widths: 20 10 10 60
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| **query** | string or array | **Required** | The query string or array for performing the search. |
+| **filters** | object | Optional | Filters based on file attributes to narrow the search results. |
+| **max_num_results** | integer | Optional | Maximum number of results to return (1 to 50 inclusive, default 10). |
+| **ranking_options** | object | Optional | Ranking options for fine-tuning the search results. |
+| **rewrite_query** | boolean | Optional | Whether to rewrite the natural language query for vector search (default false). |
 
-* - Parameter
-  - Type
-  - Required
-  - Description
-* - **query**
-  - string or array
-  - **Required**
-  - The query string or array for performing the search.
-* - **filters**
-  - object
-  - Optional
-  - Filters based on file attributes to narrow the search results.
-* - **max_num_results**
-  - integer
-  - Optional
-  - Maximum number of results to return (1 to 50 inclusive, default 10).
-* - **ranking_options**
-  - object
-  - Optional
-  - Ranking options for fine-tuning the search results.
-* - **rewrite_query**
-  - boolean
-  - Optional
-  - Whether to rewrite the natural language query for vector search (default false).
-```
-
-````{dropdown} Show possible values
-:open:
+### Parameter details
 
 **filters**
 
@@ -67,12 +35,10 @@ Options for customizing the ranking of search results. This can include paramete
 **rewrite_query**
 
 When set to `true`, the system will attempt to rewrite the natural language query to optimize it for vector search.
-````
 
 ## Example request
 
-```{code-block} bash
-:caption: curl
+```
 curl -X POST \
   https://api.openai.com/v1/vector_stores/vs_abc123/search \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
@@ -90,8 +56,7 @@ curl -X POST \
 
 Returns a `VectorStoreSearchResponsePage` object containing the search results.
 
-```{code-block} json
-:caption: Example response
+```text
 {
   "object": "vector_store.search_results.page",
   "search_query": "What is the return policy?",
@@ -136,55 +101,23 @@ Returns a `VectorStoreSearchResponsePage` object containing the search results.
 
 A page of search results from the vector store.
 
-```{list-table}
-:header-rows: 1
-:widths: 20 10 70
-
-* - Field
-  - Type
-  - Description
-* - **object**
-  - string
-  - Always `vector_store.search_results.page`
-* - **search_query**
-  - string
-  - The query that was used for the search
-* - **data**
-  - array
-  - Array of search result objects
-* - **has_more**
-  - boolean
-  - Whether there are more results available
-* - **next_page**
-  - string
-  - Token for retrieving the next page of results
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| **object** | string | Always `vector_store.search_results.page` |
+| **search_query** | string | The query that was used for the search |
+| **data** | array | Array of search result objects |
+| **has_more** | boolean | Whether there are more results available |
+| **next_page** | string | Token for retrieving the next page of results |
 
 ### Search result object
 
-```{list-table}
-:header-rows: 1
-:widths: 20 10 70
-
-* - Field
-  - Type
-  - Description
-* - **file_id**
-  - string
-  - The ID of the file containing this chunk
-* - **filename**
-  - string
-  - The name of the file containing this chunk
-* - **score**
-  - number
-  - The relevance score for this result
-* - **attributes**
-  - object
-  - Key-value attributes stored with the file
-* - **content**
-  - array
-  - Array of content objects containing the matching text
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| **file_id** | string | The ID of the file containing this chunk |
+| **filename** | string | The name of the file containing this chunk |
+| **score** | number | The relevance score for this result |
+| **attributes** | object | Key-value attributes stored with the file |
+| **content** | array | Array of content objects containing the matching text |
 
 ## Related endpoints
 
