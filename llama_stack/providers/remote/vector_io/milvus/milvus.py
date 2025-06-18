@@ -5,14 +5,13 @@
 # the root directory of this source tree.
 
 import asyncio
-import hashlib
+import json
 import logging
 import os
-import uuid
 from typing import Any
 
 from numpy.typing import NDArray
-from pymilvus import MilvusClient
+from pymilvus import DataType, MilvusClient
 
 from llama_stack.apis.inference import InterleavedContent
 from llama_stack.apis.vector_dbs import VectorDB
@@ -20,18 +19,15 @@ from llama_stack.apis.vector_io import (
     Chunk,
     QueryChunksResponse,
     VectorIO,
-    VectorStoreDeleteResponse,
-    VectorStoreListResponse,
-    VectorStoreObject,
-    VectorStoreSearchResponsePage,
 )
-from llama_stack.apis.vector_io.vector_io import VectorStoreChunkingStrategy, VectorStoreFileObject
 from llama_stack.providers.datatypes import Api, VectorDBsProtocolPrivate
 from llama_stack.providers.inline.vector_io.milvus import MilvusVectorIOConfig as InlineMilvusVectorIOConfig
+from llama_stack.providers.utils.memory.openai_vector_store_mixin import OpenAIVectorStoreMixin
 from llama_stack.providers.utils.memory.vector_store import (
     EmbeddingIndex,
     VectorDBWithIndex,
 )
+from llama_stack.providers.utils.vector_io.chunk_utils import generate_chunk_id
 
 from .config import MilvusVectorIOConfig as RemoteMilvusVectorIOConfig
 
@@ -115,7 +111,7 @@ class MilvusIndex(EmbeddingIndex):
         raise NotImplementedError("Hybrid search is not supported in Milvus")
 
 
-class MilvusVectorIOAdapter(VectorIO, VectorDBsProtocolPrivate):
+class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolPrivate):
     def __init__(
         self, config: RemoteMilvusVectorIOConfig | InlineMilvusVectorIOConfig, inference_api: Api.inference
     ) -> None:
@@ -123,6 +119,10 @@ class MilvusVectorIOAdapter(VectorIO, VectorDBsProtocolPrivate):
         self.cache = {}
         self.client = None
         self.inference_api = inference_api
+        self.vector_db_store = None
+        self.openai_vector_stores: dict[str, dict[str, Any]] = {}
+        self.files_api = None  # Files API is not yet available for Milvus
+        self.metadata_collection_name = "openai_vector_stores_metadata"
 
     async def initialize(self) -> None:
         if isinstance(self.config, RemoteMilvusVectorIOConfig):
@@ -132,6 +132,8 @@ class MilvusVectorIOAdapter(VectorIO, VectorDBsProtocolPrivate):
             logger.info(f"Connecting to Milvus Lite at: {self.config.db_path}")
             uri = os.path.expanduser(self.config.db_path)
             self.client = MilvusClient(uri=uri)
+
+        self.openai_vector_stores = await self._load_openai_vector_stores()
 
     async def shutdown(self) -> None:
         self.client.close()
@@ -197,75 +199,113 @@ class MilvusVectorIOAdapter(VectorIO, VectorDBsProtocolPrivate):
 
         return await index.query_chunks(query, params)
 
-    async def openai_create_vector_store(
-        self,
-        name: str,
-        file_ids: list[str] | None = None,
-        expires_after: dict[str, Any] | None = None,
-        chunking_strategy: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
-        embedding_model: str | None = None,
-        embedding_dimension: int | None = 384,
-        provider_id: str | None = None,
-        provider_vector_db_id: str | None = None,
-    ) -> VectorStoreObject:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Qdrant")
+    async def _save_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
+        try:
+            if not await asyncio.to_thread(self.client.has_collection, self.metadata_collection_name):
+                metadata_schema = MilvusClient.create_schema(
+                    auto_id=False,
+                    enable_dynamic_field=True,
+                    description="Metadata for OpenAI vector stores",
+                )
+                metadata_schema.add_field(
+                    field_name="store_id", datatype=DataType.VARCHAR, is_primary=True, max_length=512
+                )  # max length for Milvus primary key
+                metadata_schema.add_field(
+                    field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=1
+                )  # required by Milvus
+                metadata_schema.add_field(
+                    field_name="metadata", datatype=DataType.VARCHAR, max_length=65535
+                )  # max possible length in Milvus
 
-    async def openai_list_vector_stores(
-        self,
-        limit: int | None = 20,
-        order: str | None = "desc",
-        after: str | None = None,
-        before: str | None = None,
-    ) -> VectorStoreListResponse:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Qdrant")
+                await asyncio.to_thread(
+                    self.client.create_collection,
+                    collection_name=self.metadata_collection_name,
+                    schema=metadata_schema,
+                )
 
-    async def openai_retrieve_vector_store(
-        self,
-        vector_store_id: str,
-    ) -> VectorStoreObject:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Qdrant")
+            data = [{"store_id": store_id, "vector": [0], "metadata": json.dumps(store_info)}]
+            await asyncio.to_thread(
+                self.client.upsert,
+                collection_name=self.metadata_collection_name,
+                data=data,
+            )
+            self.openai_vector_stores[store_id] = store_info
 
-    async def openai_update_vector_store(
-        self,
-        vector_store_id: str,
-        name: str | None = None,
-        expires_after: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> VectorStoreObject:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Qdrant")
+        except Exception as e:
+            logger.error(f"Error saving openai vector store {store_id}: {e}")
+            raise
 
-    async def openai_delete_vector_store(
-        self,
-        vector_store_id: str,
-    ) -> VectorStoreDeleteResponse:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Qdrant")
+    async def _load_openai_vector_stores(self) -> dict[str, dict[str, Any]]:
+        """Load the OpenAI vector store Milvus metadata collection."""
+        openai_vector_stores = {}
+        try:
+            has_collection = await asyncio.to_thread(self.client.has_collection, self.metadata_collection_name)
+            if not has_collection:
+                return openai_vector_stores
 
-    async def openai_search_vector_store(
-        self,
-        vector_store_id: str,
-        query: str | list[str],
-        filters: dict[str, Any] | None = None,
-        max_num_results: int | None = 10,
-        ranking_options: dict[str, Any] | None = None,
-        rewrite_query: bool | None = False,
-    ) -> VectorStoreSearchResponsePage:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Qdrant")
+            metadata_stats = await asyncio.to_thread(
+                self.client.get_collection_stats,
+                self.metadata_collection_name,
+            )
+            metadata_row_count = metadata_stats.get("row_count", 0)
 
-    async def openai_attach_file_to_vector_store(
-        self,
-        vector_store_id: str,
-        file_id: str,
-        attributes: dict[str, Any] | None = None,
-        chunking_strategy: VectorStoreChunkingStrategy | None = None,
-    ) -> VectorStoreFileObject:
-        raise NotImplementedError("OpenAI Vector Stores API is not supported in Milvus")
+            if metadata_row_count == 0:
+                return openai_vector_stores
 
+            collection_iterator = await asyncio.to_thread(
+                self.client.query_iterator,
+                collection_name=self.metadata_collection_name,
+                batch_size=100,
+            )
+            try:
+                while True:
+                    result = collection_iterator.next()
+                    if not result:
+                        break
 
-def generate_chunk_id(document_id: str, chunk_text: str) -> str:
-    """Generate a unique chunk ID using a hash of document ID and chunk text."""
-    hash_input = f"{document_id}:{chunk_text}".encode()
-    return str(uuid.UUID(hashlib.md5(hash_input).hexdigest()))
+                    for row in result:
+                        store_id = row.get("store_id")
+                        if store_id:
+                            try:
+                                store_info = json.loads(row.get("metadata", "{}"))
+                                openai_vector_stores[store_id] = store_info
+                            except json.JSONDecodeError:
+                                logger.error(f"failed to decode metadata for store_id {store_id}")
+            finally:
+                collection_iterator.close()
+        except Exception as e:
+            logger.error(f"error loading openai vector stores: {e}")
 
+        return openai_vector_stores
 
-# TODO: refactor this generate_chunk_id along with the `sqlite-vec` implementation into a separate utils file
+    async def _update_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
+        """Update the OpenAI vector store Milvus metadata collection."""
+        try:
+            if store_id in self.openai_vector_stores:
+                data = [{"store_id": store_id, "vector": [0], "metadata": json.dumps(store_info)}]
+                await asyncio.to_thread(
+                    self.client.upsert,
+                    collection_name=self.metadata_collection_name,
+                    data=data,
+                )
+                self.openai_vector_stores[store_id] = store_info
+        except Exception as e:
+            logger.error(f"error updating openai vector store {store_id}: {e}")
+            raise
+
+    async def _delete_openai_vector_store_from_storage(self, store_id: str) -> None:
+        """Delete the OpenAI vector store from Milvus metadata collection."""
+        try:
+            if store_id in self.openai_vector_stores:
+                if await asyncio.to_thread(self.client.has_collection, self.metadata_collection_name):
+                    await asyncio.to_thread(
+                        self.client.delete,
+                        collection_name=self.metadata_collection_name,
+                        filter=f"store_id in ['{store_id}']",
+                    )
+                # remove from in-memory cache
+                del self.openai_vector_stores[store_id]
+
+        except Exception as e:
+            logger.error(f"error deleting openai vector store {store_id}: {e}")
+            raise

@@ -109,7 +109,6 @@ class OpenAIVectorStoreMixin(ABC):
         provider_vector_db_id: str | None = None,
     ) -> VectorStoreObject:
         """Creates a vector store."""
-        # store and vector_db have the same id
         store_id = name or str(uuid.uuid4())
         created_at = int(time.time())
 
@@ -277,7 +276,7 @@ class OpenAIVectorStoreMixin(ABC):
         await self._delete_openai_vector_store_from_storage(vector_store_id)
 
         # Delete from in-memory cache
-        del self.openai_vector_stores[vector_store_id]
+        self.openai_vector_stores.pop(vector_store_id, None)
 
         # Also delete the underlying vector DB
         try:
