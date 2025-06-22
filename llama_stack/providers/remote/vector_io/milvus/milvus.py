@@ -13,7 +13,8 @@ from typing import Any
 from numpy.typing import NDArray
 from pymilvus import DataType, MilvusClient
 
-from llama_stack.apis.inference import InterleavedContent
+from llama_stack.apis.files.files import Files
+from llama_stack.apis.inference import Inference, InterleavedContent
 from llama_stack.apis.vector_dbs import VectorDB
 from llama_stack.apis.vector_io import (
     Chunk,
@@ -30,7 +31,7 @@ from llama_stack.apis.vector_io import (
     VectorStoreObject,
     VectorStoreSearchResponsePage,
 )
-from llama_stack.providers.datatypes import Api, VectorDBsProtocolPrivate
+from llama_stack.providers.datatypes import VectorDBsProtocolPrivate
 from llama_stack.providers.inline.vector_io.milvus import MilvusVectorIOConfig as InlineMilvusVectorIOConfig
 from llama_stack.providers.utils.memory.openai_vector_store_mixin import OpenAIVectorStoreMixin
 from llama_stack.providers.utils.memory.vector_store import (
@@ -123,15 +124,18 @@ class MilvusIndex(EmbeddingIndex):
 
 class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolPrivate):
     def __init__(
-        self, config: RemoteMilvusVectorIOConfig | InlineMilvusVectorIOConfig, inference_api: Api.inference
+        self,
+        config: RemoteMilvusVectorIOConfig | InlineMilvusVectorIOConfig,
+        inference_api: Inference,
+        files_api: Files | None,
     ) -> None:
         self.config = config
         self.cache = {}
         self.client = None
         self.inference_api = inference_api
+        self.files_api = files_api
         self.vector_db_store = None
         self.openai_vector_stores: dict[str, dict[str, Any]] = {}
-        self.files_api = None  # Files API is not yet available for Milvus
         self.metadata_collection_name = "openai_vector_stores_metadata"
 
     async def initialize(self) -> None:
