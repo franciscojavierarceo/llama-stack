@@ -70,7 +70,11 @@ class MilvusIndex(EmbeddingIndex):
 
         data = []
         for chunk, embedding in zip(chunks, embeddings, strict=False):
-            chunk_id = generate_chunk_id(chunk.metadata["document_id"], chunk.content)
+            chunk_id = (
+                chunk.chunk_id
+                if hasattr(chunk, "chunk_id")
+                else generate_chunk_id(chunk.metadata["document_id"], chunk.content)
+            )
 
             data.append(
                 {
@@ -430,8 +434,11 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolP
                     enable_dynamic_field=True,
                     description="Metadata for OpenAI vector store files",
                 )
-                file_schema.add_field(field_name="store_id", datatype=DataType.VARCHAR, is_primary=True, max_length=512)
-                file_schema.add_field(field_name="file_id", datatype=DataType.VARCHAR, is_primary=True, max_length=512)
+                file_schema.add_field(
+                    field_name="store_file_id", datatype=DataType.VARCHAR, is_primary=True, max_length=512
+                )
+                file_schema.add_field(field_name="store_id", datatype=DataType.VARCHAR, max_length=512)
+                file_schema.add_field(field_name="file_id", datatype=DataType.VARCHAR, max_length=512)
                 file_schema.add_field(field_name="file_info", datatype=DataType.VARCHAR, max_length=65535)
 
                 await asyncio.to_thread(
@@ -447,11 +454,11 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolP
                     description="Contents for OpenAI vector store files",
                 )
                 content_schema.add_field(
-                    field_name="store_id", datatype=DataType.VARCHAR, is_primary=True, max_length=512
+                    field_name="chunk_id", datatype=DataType.VARCHAR, is_primary=True, max_length=1024
                 )
-                content_schema.add_field(
-                    field_name="file_id", datatype=DataType.VARCHAR, is_primary=True, max_length=512
-                )
+                content_schema.add_field(field_name="store_file_id", datatype=DataType.VARCHAR, max_length=1024)
+                content_schema.add_field(field_name="store_id", datatype=DataType.VARCHAR, max_length=512)
+                content_schema.add_field(field_name="file_id", datatype=DataType.VARCHAR, max_length=512)
                 content_schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
 
                 await asyncio.to_thread(
@@ -461,7 +468,14 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolP
                 )
 
             # Save file metadata
-            file_data = [{"store_id": store_id, "file_id": file_id, "file_info": json.dumps(file_info)}]
+            file_data = [
+                {
+                    "store_file_id": f"{store_id}_{file_id}",
+                    "store_id": store_id,
+                    "file_id": file_id,
+                    "file_info": json.dumps(file_info),
+                }
+            ]
             await asyncio.to_thread(
                 self.client.upsert,
                 collection_name="openai_vector_store_files",
@@ -470,7 +484,14 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolP
 
             # Save file contents
             contents_data = [
-                {"store_id": store_id, "file_id": file_id, "content": json.dumps(content)} for content in file_contents
+                {
+                    "chunk_id": generate_chunk_id(file_id, content.get("chunk_id", None)),
+                    "store_file_id": f"{store_id}_{file_id}",
+                    "store_id": store_id,
+                    "file_id": file_id,
+                    "content": json.dumps(content),
+                }
+                for content in file_contents
             ]
             await asyncio.to_thread(
                 self.client.upsert,
@@ -538,7 +559,14 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolP
             if not await asyncio.to_thread(self.client.has_collection, "openai_vector_store_files"):
                 return
 
-            file_data = [{"store_id": store_id, "file_id": file_id, "file_info": json.dumps(file_info)}]
+            file_data = [
+                {
+                    "store_file_id": f"{store_id}_{file_id}",
+                    "store_id": store_id,
+                    "file_id": file_id,
+                    "file_info": json.dumps(file_info),
+                }
+            ]
             await asyncio.to_thread(
                 self.client.upsert,
                 collection_name="openai_vector_store_files",

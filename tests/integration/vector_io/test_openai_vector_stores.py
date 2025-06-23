@@ -718,7 +718,7 @@ def test_openai_vector_store_delete_file(compat_client_with_empty_stores, client
 
 
 # TODO: Remove this xfail once we have a way to remove embeddings from vector store
-@pytest.mark.xfail(reason="Vector Store Files delete doesn't remove embeddings from vecntor store", strict=True)
+@pytest.mark.xfail(reason="Vector Store Files delete doesn't remove embeddings from vector store", strict=True)
 def test_openai_vector_store_delete_file_removes_from_vector_store(compat_client_with_empty_stores, client_with_models):
     """Test OpenAI vector store delete file removes from vector store."""
     skip_if_provider_doesnt_support_openai_vector_stores(client_with_models)
