@@ -25,7 +25,6 @@ from llama_stack.apis.vector_io import (
     VectorStoreDeleteResponse,
     VectorStoreFileContentsResponse,
     VectorStoreFileObject,
-    VectorStoreFileStatus,
     VectorStoreListFilesResponse,
     VectorStoreListResponse,
     VectorStoreObject,
