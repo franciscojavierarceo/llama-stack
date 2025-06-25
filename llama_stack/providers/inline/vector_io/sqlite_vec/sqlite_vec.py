@@ -31,7 +31,6 @@ from llama_stack.providers.utils.memory.vector_store import (
     EmbeddingIndex,
     VectorDBWithIndex,
 )
-from llama_stack.providers.utils.vector_io.chunk_utils import generate_chunk_id
 
 logger = logging.getLogger(__name__)
 
