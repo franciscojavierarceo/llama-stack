@@ -5,6 +5,7 @@
 # the root directory of this source tree.
 
 import asyncio
+import json
 import logging
 import mimetypes
 import time
@@ -36,12 +37,19 @@ from llama_stack.apis.vector_io import (
     VectorStoreSearchResponse,
     VectorStoreSearchResponsePage,
 )
+from llama_stack.providers.utils.kvstore.api import KVStore
 from llama_stack.providers.utils.memory.vector_store import content_from_data_and_mime_type, make_overlapped_chunks
 
 logger = logging.getLogger(__name__)
 
 # Constants for OpenAI vector stores
 CHUNK_MULTIPLIER = 5
+
+VERSION = "v3"
+VECTOR_DBS_PREFIX = f"vector_dbs:{VERSION}::"
+OPENAI_VECTOR_STORES_PREFIX = f"openai_vector_stores:{VERSION}::"
+OPENAI_VECTOR_STORES_FILES_PREFIX = f"openai_vector_stores_files:{VERSION}::"
+OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX = f"openai_vector_stores_files_contents:{VERSION}::"
 
 
 class OpenAIVectorStoreMixin(ABC):
@@ -54,26 +62,33 @@ class OpenAIVectorStoreMixin(ABC):
     # These should be provided by the implementing class
     openai_vector_stores: dict[str, dict[str, Any]]
     files_api: Files | None
+    kvstore: KVStore | None
 
-    @abstractmethod
     async def _save_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
         """Save vector store metadata to persistent storage."""
-        pass
+        assert self.kvstore is not None
+        key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
+        await self.kvstore.set(key=key, value=json.dumps(store_info))
 
-    @abstractmethod
     async def _load_openai_vector_stores(self) -> dict[str, dict[str, Any]]:
         """Load all vector store metadata from persistent storage."""
-        pass
+        assert self.kvstore is not None
+        start_key = OPENAI_VECTOR_STORES_PREFIX
+        end_key = f"{OPENAI_VECTOR_STORES_PREFIX}\xff"
+        stored = await self.kvstore.values_in_range(start_key, end_key)
+        return {json.loads(s)["id"]: json.loads(s) for s in stored}
 
-    @abstractmethod
     async def _update_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
         """Update vector store metadata in persistent storage."""
-        pass
+        assert self.kvstore is not None
+        key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
+        await self.kvstore.set(key=key, value=json.dumps(store_info))
 
-    @abstractmethod
     async def _delete_openai_vector_store_from_storage(self, store_id: str) -> None:
         """Delete vector store metadata from persistent storage."""
-        pass
+        assert self.kvstore is not None
+        key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
+        await self.kvstore.delete(key)
 
     @abstractmethod
     async def _save_openai_vector_store_file(
