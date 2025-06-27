@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from numpy.typing import NDArray
-from pymilvus import DataType, MilvusClient
+from pymilvus import MilvusClient
 
 from llama_stack.apis.files.files import Files
 from llama_stack.apis.inference import Inference, InterleavedContent
@@ -21,10 +21,10 @@ from llama_stack.apis.vector_io import (
     QueryChunksResponse,
     VectorIO,
 )
-from llama_stack.providers.utils.kvstore import kvstore_impl
-from llama_stack.providers.utils.kvstore.api import KVStore
 from llama_stack.providers.datatypes import VectorDBsProtocolPrivate
 from llama_stack.providers.inline.vector_io.milvus import MilvusVectorIOConfig as InlineMilvusVectorIOConfig
+from llama_stack.providers.utils.kvstore import kvstore_impl
+from llama_stack.providers.utils.kvstore.api import KVStore
 from llama_stack.providers.utils.memory.openai_vector_store_mixin import OpenAIVectorStoreMixin
 from llama_stack.providers.utils.memory.vector_store import (
     EmbeddingIndex,
@@ -44,7 +44,9 @@ OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX = f"openai_vector_stores_files_conten
 
 
 class MilvusIndex(EmbeddingIndex):
-    def __init__(self, client: MilvusClient, collection_name: str, consistency_level="Strong", kvstore: KVStore | None=None):
+    def __init__(
+        self, client: MilvusClient, collection_name: str, consistency_level="Strong", kvstore: KVStore | None = None
+    ):
         self.client = client
         self.collection_name = collection_name.replace("-", "_")
         self.consistency_level = consistency_level
@@ -259,7 +261,7 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorDBsProtocolP
         await self.kvstore.delete(key)
 
     async def _save_openai_vector_store_file(
-            self, store_id: str, file_id: str, file_info: dict[str, Any], file_contents: list[dict[str, Any]]
+        self, store_id: str, file_id: str, file_info: dict[str, Any], file_contents: list[dict[str, Any]]
     ) -> None:
         """Save vector store file metadata to Milvus database."""
         raise NotImplementedError("Files API is not yet implemented in Milvus")

@@ -8,11 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from llama_stack.schema_utils import json_schema_type
 from llama_stack.providers.utils.kvstore.config import (
     KVStoreConfig,
     SqliteKVStoreConfig,
 )
+from llama_stack.schema_utils import json_schema_type
 
 
 @json_schema_type
@@ -27,5 +27,5 @@ class MilvusVectorIOConfig(BaseModel):
             "kvstore": SqliteKVStoreConfig.sample_run_config(
                 __distro_dir__=__distro_dir__,
                 db_name="vector_registry.db",
-            )
+            ),
         }
