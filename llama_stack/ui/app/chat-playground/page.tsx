@@ -74,7 +74,7 @@ export default function ChatPlaygroundPage() {
   const handleSubmit = async (event?: { preventDefault?: () => void }) => {
     event?.preventDefault?.();
     if (!input.trim() || isGenerating) return;
-    
+
     if (!selectedModel && !modelsError) return;
 
     const userMessage: Message = {
