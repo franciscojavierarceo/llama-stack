@@ -75,7 +75,7 @@ export default function ChatPlaygroundPage() {
       }
 
       const data = await response.json();
-      
+
       if (data.choices && data.choices.length > 0) {
         const assistantMessage: ChatMessage = {
           role: "assistant",
