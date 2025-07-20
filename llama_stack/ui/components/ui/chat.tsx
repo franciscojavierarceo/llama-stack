@@ -226,6 +226,7 @@ export function Chat({
             stop={handleStop}
             isGenerating={isGenerating}
             transcribeAudio={transcribeAudio}
+            isEmpty={isEmpty}
           />
         )}
       </ChatForm>
