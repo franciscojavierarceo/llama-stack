@@ -29,6 +29,8 @@ export default function ChatPlaygroundPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const client = useAuthClient();
 
+  const isModelsLoading = modelsLoading ?? true;
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -143,8 +145,8 @@ export default function ChatPlaygroundPage() {
         <div className="flex gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" disabled={modelsLoading || isLoading}>
-                {modelsLoading ? (
+              <Button variant="outline" disabled={isModelsLoading || isLoading}>
+                {isModelsLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Loading models...
