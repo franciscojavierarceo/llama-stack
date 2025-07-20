@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { ChatMessage } from "@/lib/types";
 import { ChatMessageItem } from "@/components/chat-completions/chat-messasge-item";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Send, Loader2 } from "lucide-react";
+import { useAuthClient } from "@/hooks/use-auth-client";
+import type { CompletionCreateParams } from "llama-stack-client/resources/chat/completions";
 
 export default function ChatPlaygroundPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -15,7 +16,7 @@ export default function ChatPlaygroundPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { data: session } = useSession();
+  const client = useAuthClient();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -55,33 +56,32 @@ export default function ChatPlaygroundPage() {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.accessToken && { 'Authorization': `Bearer ${session.accessToken}` }),
-        },
-        body: JSON.stringify({
-          model: "meta-llama/Llama-3.2-3B-Instruct",
-          messages: [...messages, userMessage].map(msg => ({
-            role: msg.role,
-            content: msg.content,
-          })),
-        }),
+      const messageParams: CompletionCreateParams["messages"] = [...messages, userMessage].map(msg => {
+        const content = typeof msg.content === 'string' ? msg.content : extractTextContent(msg.content);
+        if (msg.role === "user") {
+          return { role: "user" as const, content };
+        } else if (msg.role === "assistant") {
+          return { role: "assistant" as const, content };
+        } else {
+          return { role: "system" as const, content };
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const response = await client.chat.completions.create({
+        model: "meta-llama/Llama-3.2-3B-Instruct",
+        messages: messageParams,
+        stream: false,
+      });
 
-      const data = await response.json();
-
-      if (data.choices && data.choices.length > 0) {
-        const assistantMessage: ChatMessage = {
-          role: "assistant",
-          content: extractTextContent(data.choices[0].message.content),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
+      if ('choices' in response && response.choices && response.choices.length > 0) {
+        const choice = response.choices[0];
+        if ('message' in choice && choice.message) {
+          const assistantMessage: ChatMessage = {
+            role: "assistant",
+            content: extractTextContent(choice.message.content),
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+        }
       }
     } catch (err) {
       console.error("Error sending message:", err);
