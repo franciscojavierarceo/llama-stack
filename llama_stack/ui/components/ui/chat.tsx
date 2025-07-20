@@ -320,7 +320,7 @@ export const ChatForm = forwardRef<HTMLFormElement, ChatFormProps>(
         event.preventDefault()
         return
       }
-      
+
       if (!files) {
         handleSubmit(event)
         return

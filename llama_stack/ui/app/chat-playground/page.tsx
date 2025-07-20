@@ -111,7 +111,7 @@ export default function ChatPlaygroundPage() {
         content: "",
         createdAt: new Date(),
       };
-      
+
       setMessages(prev => [...prev, assistantMessage]);
 
       for await (const chunk of response) {
