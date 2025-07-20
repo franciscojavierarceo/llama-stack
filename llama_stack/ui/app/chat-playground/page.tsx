@@ -73,7 +73,9 @@ export default function ChatPlaygroundPage() {
 
   const handleSubmit = async (event?: { preventDefault?: () => void }) => {
     event?.preventDefault?.();
-    if (!input.trim() || isGenerating || !selectedModel) return;
+    if (!input.trim() || isGenerating) return;
+    
+    if (!selectedModel && !modelsError) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -88,6 +90,10 @@ export default function ChatPlaygroundPage() {
     setError(null);
 
     try {
+      if (!selectedModel) {
+        throw new Error("No model available. Please check your backend connection and try again.");
+      }
+
       const messageParams: CompletionCreateParams["messages"] = [...messages, userMessage].map(msg => {
         const content = typeof msg.content === 'string' ? msg.content : extractTextContent(msg.content);
         if (msg.role === "user") {
