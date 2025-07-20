@@ -102,24 +102,36 @@ export default function ChatPlaygroundPage() {
       const response = await client.chat.completions.create({
         model: selectedModel,
         messages: messageParams,
-        stream: false,
+        stream: true,
       });
 
-      if ('choices' in response && response.choices && response.choices.length > 0) {
-        const choice = response.choices[0];
-        if ('message' in choice && choice.message) {
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: "assistant",
-            content: extractTextContent(choice.message.content),
-            createdAt: new Date(),
-          };
-          setMessages(prev => [...prev, assistantMessage]);
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "",
+        createdAt: new Date(),
+      };
+      
+      setMessages(prev => [...prev, assistantMessage]);
+
+      for await (const chunk of response) {
+        if (chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) {
+          const deltaContent = chunk.choices[0].delta.content;
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (lastMessage.role === "assistant") {
+              const currentContent = typeof lastMessage.content === 'string' ? lastMessage.content : '';
+              lastMessage.content = currentContent + deltaContent;
+            }
+            return newMessages;
+          });
         }
       }
     } catch (err) {
       console.error("Error sending message:", err);
       setError("Failed to send message. Please try again.");
+      setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsGenerating(false);
     }

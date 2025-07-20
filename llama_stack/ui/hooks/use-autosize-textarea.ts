@@ -5,7 +5,6 @@ interface UseAutosizeTextAreaProps {
   maxHeight?: number
   borderWidth?: number
   dependencies: React.DependencyList
-  resetOriginalHeight?: boolean
 }
 
 export function useAutosizeTextArea({
@@ -13,7 +12,6 @@ export function useAutosizeTextArea({
   maxHeight = Number.MAX_SAFE_INTEGER,
   borderWidth = 0,
   dependencies,
-  resetOriginalHeight = false,
 }: UseAutosizeTextAreaProps) {
   const originalHeight = useRef<number | null>(null)
 
@@ -23,7 +21,7 @@ export function useAutosizeTextArea({
     const currentRef = ref.current
     const borderAdjustment = borderWidth * 2
 
-    if (originalHeight.current === null || resetOriginalHeight) {
+    if (originalHeight.current === null) {
       originalHeight.current = currentRef.scrollHeight - borderAdjustment
     }
 
@@ -37,5 +35,5 @@ export function useAutosizeTextArea({
 
     currentRef.style.height = `${clampedToMin + borderAdjustment}px`
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maxHeight, ref, resetOriginalHeight, ...dependencies])
+  }, [maxHeight, ref, ...dependencies])
 }

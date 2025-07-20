@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowUp, Info, Loader2, Mic, Paperclip, Square, X } from "lucide-react"
+import { ArrowUp, Info, Loader2, Mic, Paperclip, Square } from "lucide-react"
 import { omit } from "remeda"
 
 import { cn } from "@/lib/utils"
@@ -21,7 +21,6 @@ interface MessageInputBaseProps
   isGenerating: boolean
   enableInterrupt?: boolean
   transcribeAudio?: (blob: Blob) => Promise<string>
-  isEmpty?: boolean
 }
 
 interface MessageInputWithoutAttachmentProps extends MessageInputBaseProps {
@@ -47,7 +46,6 @@ export function MessageInput({
   isGenerating,
   enableInterrupt = true,
   transcribeAudio,
-  isEmpty = false,
   ...props
 }: MessageInputProps) {
   const [isDragging, setIsDragging] = useState(false)
@@ -173,18 +171,12 @@ export function MessageInput({
   const showFileList =
     props.allowAttachments && props.files && props.files.length > 0
 
-  const wasEmpty = useRef(isEmpty)
-  const shouldReset = wasEmpty.current && !isEmpty
-
   useAutosizeTextArea({
     ref: textAreaRef,
     maxHeight: 240,
     borderWidth: 1,
     dependencies: [props.value, showFileList],
-    resetOriginalHeight: shouldReset,
   })
-
-  wasEmpty.current = isEmpty
 
   return (
     <div
