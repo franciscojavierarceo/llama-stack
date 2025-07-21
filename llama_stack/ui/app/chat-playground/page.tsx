@@ -1,0 +1,224 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Chat } from "@/components/ui/chat";
+import { type Message } from "@/components/ui/chat-message";
+import { useAuthClient } from "@/hooks/use-auth-client";
+import type { CompletionCreateParams } from "llama-stack-client/resources/chat/completions";
+import type { Model } from "llama-stack-client/resources/models";
+
+export default function ChatPlaygroundPage() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hardcodedModels: Model[] = [
+    {
+      identifier: "llama3.2-3b-instruct",
+      model_type: "llm" as const,
+      metadata: {},
+      provider_id: "meta-reference",
+      type: "model" as const
+    },
+    {
+      identifier: "llama3.2-1b-instruct",
+      model_type: "llm" as const,
+      metadata: {},
+      provider_id: "meta-reference",
+      type: "model" as const
+    },
+    {
+      identifier: "llama3.1-8b-instruct",
+      model_type: "llm" as const,
+      metadata: {},
+      provider_id: "meta-reference",
+      type: "model" as const
+    },
+  ];
+
+
+  const [models] = useState<Model[]>(hardcodedModels);
+  const [selectedModel, setSelectedModel] = useState<string>(hardcodedModels[0].identifier);
+  const [modelsLoading] = useState(false);
+  const [modelsError] = useState<string | null>(null);
+  const client = useAuthClient();
+
+  const isModelsLoading = modelsLoading ?? false;
+
+  const extractTextContent = (content: unknown): string => {
+    if (typeof content === 'string') {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      return content
+        .filter(item => item && typeof item === 'object' && 'type' in item && item.type === 'text')
+        .map(item => (item && typeof item === 'object' && 'text' in item) ? String(item.text) : '')
+        .join('');
+    }
+    if (content && typeof content === 'object' && 'type' in content && content.type === 'text' && 'text' in content) {
+      return String(content.text) || '';
+    }
+    return '';
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (event?: { preventDefault?: () => void }) => {
+    event?.preventDefault?.();
+    if (!input.trim() || isGenerating) {
+      return;
+    }
+
+    if (!selectedModel && !modelsError) {
+      return;
+    }
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: input.trim(),
+      createdAt: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput("");
+    setIsGenerating(true);
+    setError(null);
+
+    try {
+      if (!selectedModel) {
+        setError("No model available. Please check your backend connection and try again.");
+        return;
+      }
+
+      const messageParams: CompletionCreateParams["messages"] = [...messages, userMessage].map(msg => {
+        const content = typeof msg.content === 'string' ? msg.content : extractTextContent(msg.content);
+        if (msg.role === "user") {
+          return { role: "user" as const, content };
+        } else if (msg.role === "assistant") {
+          return { role: "assistant" as const, content };
+        } else {
+          return { role: "system" as const, content };
+        }
+      });
+
+      const response = await client.chat.completions.create({
+        model: selectedModel,
+        messages: messageParams,
+        stream: true,
+      });
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "",
+        createdAt: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      for await (const chunk of response) {
+        if (chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) {
+          const deltaContent = chunk.choices[0].delta.content;
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (lastMessage.role === "assistant") {
+              const currentContent = typeof lastMessage.content === 'string' ? lastMessage.content : '';
+              lastMessage.content = currentContent + deltaContent;
+            }
+            return newMessages;
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error sending message:", err);
+      setError("Failed to send message. Please try again.");
+      setMessages(prev => prev.slice(0, -1));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const suggestions = [
+    "What is the weather in San Francisco?",
+    "Explain step-by-step how to solve this math problem: If x² + 6x + 9 = 25, what is x?",
+    "Design a simple algorithm to find the longest palindrome in a string.",
+  ];
+
+  const append = (message: { role: "user"; content: string }) => {
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      role: message.role,
+      content: message.content,
+      createdAt: new Date(),
+    };
+    setMessages(prev => [...prev, newMessage]);
+    setInput(message.content);
+    setTimeout(() => handleSubmit(), 100);
+  };
+
+  const clearChat = () => {
+    setMessages([]);
+    setError(null);
+  };
+
+  return (
+    <div className="flex flex-col h-full max-w-4xl mx-auto">
+      <div className="mb-4 flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Chat Playground</h1>
+        <div className="flex gap-2">
+          <Select value={selectedModel} onValueChange={setSelectedModel} disabled={isModelsLoading || isGenerating}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder={isModelsLoading ? "Loading models..." : "Select Model"} />
+            </SelectTrigger>
+            <SelectContent>
+              {models.map((model) => (
+                <SelectItem key={model.identifier} value={model.identifier}>
+                  {model.identifier}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" onClick={clearChat} disabled={isGenerating}>
+            Clear Chat
+          </Button>
+        </div>
+      </div>
+
+      {modelsError && (
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+          <p className="text-destructive text-sm">{modelsError}</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+          <p className="text-destructive text-sm">{error}</p>
+        </div>
+      )}
+
+      <Chat
+        className="flex-1"
+        messages={messages}
+        handleSubmit={handleSubmit}
+        input={input}
+        handleInputChange={handleInputChange}
+        isGenerating={isGenerating}
+        append={append}
+        suggestions={suggestions}
+        setMessages={setMessages}
+      />
+    </div>
+  );
+}
