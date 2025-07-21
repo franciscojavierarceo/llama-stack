@@ -21,29 +21,30 @@ export default function ChatPlaygroundPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hardcodedModels: Model[] = [
-    { 
-      identifier: "llama3.2-3b-instruct", 
+    {
+      identifier: "llama3.2-3b-instruct",
       model_type: "llm" as const,
       metadata: {},
       provider_id: "meta-reference",
       type: "model" as const
     },
-    { 
-      identifier: "llama3.2-1b-instruct", 
+    {
+      identifier: "llama3.2-1b-instruct",
       model_type: "llm" as const,
       metadata: {},
-      provider_id: "meta-reference", 
+      provider_id: "meta-reference",
       type: "model" as const
     },
-    { 
-      identifier: "llama3.1-8b-instruct", 
+    {
+      identifier: "llama3.1-8b-instruct",
       model_type: "llm" as const,
       metadata: {},
       provider_id: "meta-reference",
       type: "model" as const
     },
   ];
-  
+
+
   const [models] = useState<Model[]>(hardcodedModels);
   const [selectedModel, setSelectedModel] = useState<string>(hardcodedModels[0].identifier);
   const [modelsLoading] = useState(false);
