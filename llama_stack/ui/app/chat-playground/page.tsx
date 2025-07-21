@@ -91,7 +91,8 @@ export default function ChatPlaygroundPage() {
 
     try {
       if (!selectedModel) {
-        throw new Error("No model available. Please check your backend connection and try again.");
+        setError("No model available. Please check your backend connection and try again.");
+        return;
       }
 
       const messageParams: CompletionCreateParams["messages"] = [...messages, userMessage].map(msg => {
