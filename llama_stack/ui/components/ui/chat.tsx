@@ -63,9 +63,8 @@ export function Chat({
   setMessages,
   transcribeAudio,
 }: ChatProps) {
-  const lastMessage = messages.at(-1)
   const isEmpty = messages.length === 0
-  const isTyping = lastMessage?.role === "user"
+  const isTyping = false // Fix: Don't block form submission based on last message role
 
   const messagesRef = useRef(messages)
   messagesRef.current = messages

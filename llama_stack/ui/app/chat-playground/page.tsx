@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -20,36 +20,37 @@ export default function ChatPlaygroundPage() {
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [models, setModels] = useState<Model[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>("");
-  const [modelsLoading, setModelsLoading] = useState(true);
-  const [modelsError, setModelsError] = useState<string | null>(null);
+  const hardcodedModels: Model[] = [
+    { 
+      identifier: "llama3.2-3b-instruct", 
+      model_type: "llm" as const,
+      metadata: {},
+      provider_id: "meta-reference",
+      type: "model" as const
+    },
+    { 
+      identifier: "llama3.2-1b-instruct", 
+      model_type: "llm" as const,
+      metadata: {},
+      provider_id: "meta-reference", 
+      type: "model" as const
+    },
+    { 
+      identifier: "llama3.1-8b-instruct", 
+      model_type: "llm" as const,
+      metadata: {},
+      provider_id: "meta-reference",
+      type: "model" as const
+    },
+  ];
+  
+  const [models] = useState<Model[]>(hardcodedModels);
+  const [selectedModel, setSelectedModel] = useState<string>(hardcodedModels[0].identifier);
+  const [modelsLoading] = useState(false);
+  const [modelsError] = useState<string | null>(null);
   const client = useAuthClient();
 
-  const isModelsLoading = modelsLoading ?? true;
-
-
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        setModelsLoading(true);
-        setModelsError(null);
-        const modelList = await client.models.list();
-        const llmModels = modelList.filter(model => model.model_type === 'llm');
-        setModels(llmModels);
-        if (llmModels.length > 0) {
-          setSelectedModel(llmModels[0].identifier);
-        }
-      } catch (err) {
-        console.error("Error fetching models:", err);
-        setModelsError("Failed to fetch available models");
-      } finally {
-        setModelsLoading(false);
-      }
-    };
-
-    fetchModels();
-  }, [client]);
+  const isModelsLoading = modelsLoading ?? false;
 
   const extractTextContent = (content: unknown): string => {
     if (typeof content === 'string') {
@@ -73,9 +74,13 @@ export default function ChatPlaygroundPage() {
 
   const handleSubmit = async (event?: { preventDefault?: () => void }) => {
     event?.preventDefault?.();
-    if (!input.trim() || isGenerating) return;
+    if (!input.trim() || isGenerating) {
+      return;
+    }
 
-    if (!selectedModel && !modelsError) return;
+    if (!selectedModel && !modelsError) {
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
