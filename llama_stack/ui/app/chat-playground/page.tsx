@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Trash2 } from "lucide-react";
 import { Chat } from "@/components/chat-playground/chat";
 import { type Message } from "@/components/chat-playground/chat-message";
+import { VectorDBCreator } from "@/components/chat-playground/vector-db-creator";
 import { useAuthClient } from "@/hooks/use-auth-client";
 import type { Model } from "llama-stack-client/resources/models";
 import type { TurnCreateParams } from "llama-stack-client/resources/agents/turn";
@@ -65,6 +66,20 @@ export default function ChatPlaygroundPage() {
       provider_resource_id?: string;
     }>
   >([]);
+  const [showCreateVectorDB, setShowCreateVectorDB] = useState(false);
+  const [availableVectorDBs, setAvailableVectorDBs] = useState<
+    Array<{
+      identifier: string;
+      vector_db_name?: string;
+      embedding_model: string;
+    }>
+  >([]);
+  const [uploadNotification, setUploadNotification] = useState<{
+    show: boolean;
+    message: string;
+    type: "success" | "error" | "loading";
+  }>({ show: false, message: "", type: "success" });
+  const [selectedVectorDBs, setSelectedVectorDBs] = useState<string[]>([]);
   const client = useAuthClient();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -92,7 +107,10 @@ export default function ChatPlaygroundPage() {
         console.log("Agent toolgroups:", agentDetails.agent_config?.toolgroups);
 
         // cache the config
-        SessionUtils.saveAgentConfig(agentId, agentDetails.agent_config);
+        SessionUtils.saveAgentConfig(agentId, {
+          ...agentDetails.agent_config,
+          toolgroups: agentDetails.agent_config?.toolgroups,
+        });
 
         setSelectedAgentConfig({
           toolgroups: agentDetails.agent_config?.toolgroups,
@@ -238,7 +256,8 @@ export default function ChatPlaygroundPage() {
           // try to find saved session id in available sessions
           if (savedSessionId) {
             const foundSession = response.data.find(
-              (s: { session_id: string }) => s.session_id === savedSessionId
+              (s: { [key: string]: unknown }) =>
+                (s as { session_id: string }).session_id === savedSessionId
             );
             console.log("Found saved session in list:", foundSession);
             if (foundSession) {
@@ -330,7 +349,8 @@ export default function ChatPlaygroundPage() {
           // if we have a saved agent ID, find it in the available agents
           if (savedAgentId) {
             const foundAgent = agentList.data.find(
-              (a: { agent_id: string }) => a.agent_id === savedAgentId
+              (a: { [key: string]: unknown }) =>
+                (a as { agent_id: string }).agent_id === savedAgentId
             );
             if (foundAgent) {
               agentToSelect = foundAgent as typeof agentToSelect;
@@ -398,6 +418,29 @@ export default function ChatPlaygroundPage() {
     };
 
     fetchToolgroups();
+
+    // fetch available vector DBs
+    const fetchVectorDBs = async () => {
+      try {
+        console.log("Fetching vector DBs...");
+        const vectorDBs = await client.vectorDBs.list();
+        console.log("Vector DBs response:", vectorDBs);
+
+        // The API returns the array directly
+        const vectorDBsArray = Array.isArray(vectorDBs) ? vectorDBs : [];
+
+        if (vectorDBsArray && Array.isArray(vectorDBsArray)) {
+          setAvailableVectorDBs(vectorDBsArray);
+          console.log("Set vector DBs:", vectorDBsArray);
+        } else {
+          console.error("Invalid vector DBs data format:", vectorDBs);
+        }
+      } catch (error) {
+        console.error("Error fetching vector DBs:", error);
+      }
+    };
+
+    fetchVectorDBs();
   }, [client, loadAgentSessions, loadAgentConfig]);
 
   const createNewAgent = useCallback(
@@ -405,16 +448,34 @@ export default function ChatPlaygroundPage() {
       name: string,
       instructions: string,
       model: string,
-      toolgroups: string[] = []
+      toolgroups: string[] = [],
+      vectorDBs: string[] = []
     ) => {
       try {
         console.log("Creating agent with toolgroups:", toolgroups);
+        console.log("Creating agent with vector DBs:", vectorDBs);
+
+        // Process toolgroups to add RAG configuration if vector DBs are selected
+        const processedToolgroups = toolgroups.map(toolgroup => {
+          if (toolgroup === "builtin::rag" && vectorDBs.length > 0) {
+            // Configure RAG tool with selected vector DBs
+            return {
+              name: "builtin::rag/knowledge_search",
+              args: {
+                vector_db_ids: vectorDBs,
+              },
+            };
+          }
+          return toolgroup;
+        });
+
         const agentConfig = {
           model,
           instructions,
           name: name || undefined,
           enable_session_persistence: true,
-          toolgroups: toolgroups.length > 0 ? toolgroups : undefined,
+          toolgroups:
+            processedToolgroups.length > 0 ? processedToolgroups : undefined,
         };
         console.log("Agent config being sent:", agentConfig);
 
@@ -448,6 +509,27 @@ export default function ChatPlaygroundPage() {
       }
     },
     [client, loadAgentSessions, loadAgentConfig]
+  );
+
+  const handleVectorDBCreated = useCallback(
+    async (vectorDbId: string) => {
+      console.log("Vector DB created:", vectorDbId);
+      setShowCreateVectorDB(false);
+
+      // Refresh the vector DBs list
+      try {
+        const vectorDBs = await client.vectorDBs.list();
+        const vectorDBsArray = Array.isArray(vectorDBs) ? vectorDBs : [];
+
+        if (vectorDBsArray && Array.isArray(vectorDBsArray)) {
+          setAvailableVectorDBs(vectorDBsArray);
+          console.log("Refreshed vector DBs:", vectorDBsArray);
+        }
+      } catch (error) {
+        console.error("Error refreshing vector DBs:", error);
+      }
+    },
+    [client]
   );
 
   const deleteAgent = useCallback(
@@ -484,7 +566,8 @@ export default function ChatPlaygroundPage() {
           // if we deleted the current agent, switch to another one
           if (selectedAgentId === agentId) {
             const remainingAgents = agentList.data?.filter(
-              (a: { agent_id: string }) => a.agent_id !== agentId
+              (a: { [key: string]: unknown }) =>
+                (a as { agent_id: string }).agent_id !== agentId
             );
             if (remainingAgents && remainingAgents.length > 0) {
               const newAgent = remainingAgents[0] as {
@@ -556,8 +639,12 @@ export default function ChatPlaygroundPage() {
         setModelsLoading(true);
         setModelsError(null);
         const modelList = await client.models.list();
+
+        // Store all models (including embedding models for vector DB creation)
+        setModels(modelList);
+
+        // Set default LLM model for chat
         const llmModels = modelList.filter(model => model.model_type === "llm");
-        setModels(llmModels);
         if (llmModels.length > 0) {
           handleModelChange(llmModels[0].identifier);
         }
@@ -653,7 +740,8 @@ export default function ChatPlaygroundPage() {
         turnParams,
         {
           signal: abortController.signal,
-        } as { signal: AbortSignal }
+          timeout: 300000, // 5 minutes timeout for RAG queries
+        } as { signal: AbortSignal; timeout: number }
       );
 
       const assistantMessage: Message = {
@@ -663,42 +751,124 @@ export default function ChatPlaygroundPage() {
         createdAt: new Date(),
       };
 
-      const extractDeltaText = (chunk: unknown): string | null => {
-        // this is an awful way to handle different chunk formats, but i'm not sure if there's much of a better way
-        if (chunk?.delta?.text && typeof chunk.delta.text === "string") {
-          return chunk.delta.text;
+      const processChunk = (
+        chunk: unknown
+      ): { text: string | null; isToolCall: boolean } => {
+        const chunkObj = chunk as Record<string, unknown>;
+
+        // Check if this chunk contains a tool call (function call)
+        const isToolCall =
+          (chunkObj?.delta &&
+            typeof chunkObj.delta === "object" &&
+            chunkObj.delta !== null &&
+            "tool_calls" in (chunkObj.delta as Record<string, unknown>)) ||
+          (typeof chunk === "string" &&
+            (chunk.includes('"type": "function"') ||
+              chunk.includes('"name":') ||
+              chunk.includes('"parameters":')));
+
+        // If it's a tool call, skip it (don't display in chat)
+        if (isToolCall) {
+          console.debug("Tool call detected, skipping display:", chunk);
+          return { text: null, isToolCall: true };
+        }
+
+        // Extract text content from various chunk formats
+        let text: string | null = null;
+
+        if (
+          chunkObj?.delta &&
+          typeof chunkObj.delta === "object" &&
+          chunkObj.delta !== null
+        ) {
+          const delta = chunkObj.delta as Record<string, unknown>;
+          if (typeof delta.text === "string") {
+            text = delta.text;
+          }
         }
 
         if (
-          chunk?.event?.delta?.text &&
-          typeof chunk.event.delta.text === "string"
+          !text &&
+          chunkObj?.event &&
+          typeof chunkObj.event === "object" &&
+          chunkObj.event !== null
         ) {
-          return chunk.event.delta.text;
+          const event = chunkObj.event as Record<string, unknown>;
+          if (
+            event?.delta &&
+            typeof event.delta === "object" &&
+            event.delta !== null
+          ) {
+            const delta = event.delta as Record<string, unknown>;
+            if (typeof delta.text === "string") {
+              text = delta.text;
+            }
+          }
         }
 
         if (
-          chunk?.choices?.[0]?.delta?.content &&
-          typeof chunk.choices[0].delta.content === "string"
+          !text &&
+          chunkObj?.choices &&
+          Array.isArray(chunkObj.choices) &&
+          chunkObj.choices.length > 0
         ) {
-          return chunk.choices[0].delta.content;
+          const choice = chunkObj.choices[0] as Record<string, unknown>;
+          if (
+            choice?.delta &&
+            typeof choice.delta === "object" &&
+            choice.delta !== null
+          ) {
+            const delta = choice.delta as Record<string, unknown>;
+            if (typeof delta.content === "string") {
+              text = delta.content;
+            }
+          }
         }
 
-        if (typeof chunk === "string") {
-          return chunk;
+        if (!text && typeof chunk === "string") {
+          // Skip if it looks like a tool call JSON
+          if (
+            chunk.includes('"type": "function"') ||
+            chunk.includes('"name":') ||
+            chunk.includes('"parameters":')
+          ) {
+            console.debug("Tool call string detected, skipping:", chunk);
+            return { text: null, isToolCall: true };
+          }
+          text = chunk;
         }
 
         if (
-          chunk?.event?.payload?.delta?.text &&
-          typeof chunk.event.payload.delta.text === "string"
+          !text &&
+          chunkObj?.event &&
+          typeof chunkObj.event === "object" &&
+          chunkObj.event !== null
         ) {
-          return chunk.event.payload.delta.text;
+          const event = chunkObj.event as Record<string, unknown>;
+          if (
+            event?.payload &&
+            typeof event.payload === "object" &&
+            event.payload !== null
+          ) {
+            const payload = event.payload as Record<string, unknown>;
+            if (
+              payload?.delta &&
+              typeof payload.delta === "object" &&
+              payload.delta !== null
+            ) {
+              const delta = payload.delta as Record<string, unknown>;
+              if (typeof delta.text === "string") {
+                text = delta.text;
+              }
+            }
+          }
         }
 
-        if (process.env.NODE_ENV !== "production") {
+        if (!text && process.env.NODE_ENV !== "production") {
           console.debug("Unrecognized chunk format:", chunk);
         }
 
-        return null;
+        return { text, isToolCall: false };
       };
       setCurrentSession(prev => {
         if (!prev) return null;
@@ -714,7 +884,7 @@ export default function ChatPlaygroundPage() {
 
       let fullContent = "";
       for await (const chunk of response) {
-        const deltaText = extractDeltaText(chunk);
+        const { text: deltaText, isToolCall } = processChunk(chunk);
 
         if (deltaText) {
           fullContent += deltaText;
@@ -740,6 +910,9 @@ export default function ChatPlaygroundPage() {
               return updatedSession;
             });
           });
+        } else if (isToolCall) {
+          // Tool call detected - log for debugging but don't display
+          console.debug("Tool call processed, continuing stream...");
         }
       }
     } catch (err) {
@@ -809,8 +982,182 @@ export default function ChatPlaygroundPage() {
     setError(null);
   };
 
+  const handleRAGFileUpload = async (file: File) => {
+    if (!selectedAgentConfig?.toolgroups || !selectedAgentId) {
+      setError("No agent selected or agent has no RAG tools configured");
+      return;
+    }
+
+    // Find RAG toolgroups that have vector_db_ids configured
+    const ragToolgroups = selectedAgentConfig.toolgroups.filter(toolgroup => {
+      if (typeof toolgroup === "object" && toolgroup.name?.includes("rag")) {
+        return toolgroup.args && "vector_db_ids" in toolgroup.args;
+      }
+      return false;
+    });
+
+    if (ragToolgroups.length === 0) {
+      setError("Current agent has no vector databases configured for RAG");
+      return;
+    }
+
+    try {
+      setError(null);
+      console.log("Uploading file using RAG tool...");
+
+      // Show loading notification
+      setUploadNotification({
+        show: true,
+        message: `📄 Uploading and indexing "${file.name}"...`,
+        type: "loading",
+      });
+
+      // Get all vector DB IDs from RAG toolgroups
+      const vectorDbIds = ragToolgroups.flatMap(toolgroup => {
+        if (
+          typeof toolgroup === "object" &&
+          toolgroup.args &&
+          "vector_db_ids" in toolgroup.args
+        ) {
+          return toolgroup.args.vector_db_ids as string[];
+        }
+        return [];
+      });
+
+      // Determine mime type from file extension
+      const getContentType = (filename: string): string => {
+        const ext = filename.toLowerCase().split(".").pop();
+        switch (ext) {
+          case "pdf":
+            return "application/pdf";
+          case "txt":
+            return "text/plain";
+          case "md":
+            return "text/markdown";
+          case "html":
+            return "text/html";
+          case "csv":
+            return "text/csv";
+          case "json":
+            return "application/json";
+          case "docx":
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          case "doc":
+            return "application/msword";
+          default:
+            return "application/octet-stream";
+        }
+      };
+
+      const mimeType = getContentType(file.name);
+      let fileContent: string;
+
+      // Handle text files vs binary files differently
+      const isTextFile =
+        mimeType.startsWith("text/") ||
+        mimeType === "application/json" ||
+        mimeType === "text/markdown" ||
+        mimeType === "text/html" ||
+        mimeType === "text/csv";
+
+      if (isTextFile) {
+        // Read text files as text
+        fileContent = await file.text();
+      } else {
+        // Read binary files (PDF, Word docs, etc.) as base64
+        const arrayBuffer = await file.arrayBuffer();
+        fileContent = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      }
+
+      // Insert into each vector database
+      for (const vectorDbId of vectorDbIds) {
+        await client.toolRuntime.ragTool.insert({
+          documents: [
+            {
+              content: fileContent, // Pass file content (text or base64)
+              document_id: `${file.name}-${Date.now()}`,
+              metadata: {
+                filename: file.name,
+                file_size: file.size,
+                uploaded_at: new Date().toISOString(),
+                agent_id: selectedAgentId,
+              },
+              mime_type: mimeType, // Use the determined mime type
+            },
+          ],
+          vector_db_id: vectorDbId,
+          chunk_size_in_tokens: 512,
+        });
+      }
+
+      console.log("✅ File successfully uploaded using RAG tool");
+
+      // Show success notification
+      setUploadNotification({
+        show: true,
+        message: `📄 File "${file.name}" uploaded and indexed successfully!`,
+        type: "success",
+      });
+
+      // Auto-hide notification after 4 seconds
+      setTimeout(() => {
+        setUploadNotification(prev => ({ ...prev, show: false }));
+      }, 4000);
+    } catch (err) {
+      console.error("Error uploading file using RAG tool:", err);
+      const errorMessage =
+        err instanceof Error
+          ? `Failed to upload file: ${err.message}`
+          : "Failed to upload file using RAG tool";
+
+      // Show error notification
+      setUploadNotification({
+        show: true,
+        message: errorMessage,
+        type: "error",
+      });
+
+      // Auto-hide notification after 6 seconds for errors
+      setTimeout(() => {
+        setUploadNotification(prev => ({ ...prev, show: false }));
+      }, 6000);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full w-full max-w-7xl mx-auto">
+      {/* Upload Notification */}
+      {uploadNotification.show && (
+        <div
+          className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg transition-all duration-300 ${
+            uploadNotification.type === "success"
+              ? "bg-green-100 border border-green-300 text-green-800"
+              : uploadNotification.type === "error"
+                ? "bg-red-100 border border-red-300 text-red-800"
+                : "bg-blue-100 border border-blue-300 text-blue-800"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {uploadNotification.type === "loading" && (
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+            )}
+            <span className="text-sm font-medium">
+              {uploadNotification.message}
+            </span>
+            {uploadNotification.type !== "loading" && (
+              <button
+                onClick={() =>
+                  setUploadNotification(prev => ({ ...prev, show: false }))
+                }
+                className="ml-2 text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-4">
@@ -922,14 +1269,16 @@ export default function ChatPlaygroundPage() {
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {models.map(model => (
-                      <SelectItem
-                        key={model.identifier}
-                        value={model.identifier}
-                      >
-                        {model.identifier}
-                      </SelectItem>
-                    ))}
+                    {models
+                      .filter(model => model.model_type === "llm")
+                      .map(model => (
+                        <SelectItem
+                          key={model.identifier}
+                          value={model.identifier}
+                        >
+                          {model.identifier}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
                 {modelsError && (
@@ -982,34 +1331,66 @@ export default function ChatPlaygroundPage() {
                         const toolArgs =
                           typeof toolgroup === "object" ? toolgroup.args : null;
 
+                        // Format RAG tools nicely
+                        const isRAGTool = toolName.includes("rag");
+                        const displayName = isRAGTool ? "RAG Search" : toolName;
+                        const displayIcon = isRAGTool
+                          ? "🔍"
+                          : toolName.includes("search")
+                            ? "🌐"
+                            : "🔧";
+
                         return (
                           <div
                             key={index}
                             className="p-3 border border-input rounded-md bg-muted text-muted-foreground"
                           >
                             <div className="flex items-center justify-between">
-                              <code className="text-sm font-mono text-primary">
-                                {toolName}
-                              </code>
-                              <span className="text-xs text-muted-foreground">
-                                {toolName.includes("rag")
-                                  ? "🔍 RAG"
-                                  : toolName.includes("search")
-                                    ? "🌐 Search"
-                                    : "🔧 Tool"}
-                              </span>
-                            </div>
-                            {toolArgs && Object.keys(toolArgs).length > 0 && (
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                <span className="font-medium">Args:</span>{" "}
-                                {Object.entries(toolArgs)
-                                  .map(
-                                    ([key, value]) =>
-                                      `${key}: ${JSON.stringify(value)}`
-                                  )
-                                  .join(", ")}
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">{displayIcon}</span>
+                                <span className="text-sm font-medium text-primary">
+                                  {displayName}
+                                </span>
                               </div>
-                            )}
+                            </div>
+                            {isRAGTool &&
+                              toolArgs &&
+                              toolArgs.vector_db_ids && (
+                                <div className="mt-2 text-xs text-muted-foreground">
+                                  <span className="font-medium">
+                                    Vector Databases:
+                                  </span>
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {Array.isArray(toolArgs.vector_db_ids) ? (
+                                      toolArgs.vector_db_ids.map(
+                                        (dbId: string, idx: number) => (
+                                          <code
+                                            key={idx}
+                                            className="px-1.5 py-0.5 bg-muted-foreground/10 rounded text-xs"
+                                          >
+                                            {dbId}
+                                          </code>
+                                        )
+                                      )
+                                    ) : (
+                                      <code className="px-1.5 py-0.5 bg-muted-foreground/10 rounded text-xs">
+                                        {toolArgs.vector_db_ids}
+                                      </code>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            {!isRAGTool &&
+                              toolArgs &&
+                              Object.keys(toolArgs).length > 0 && (
+                                <div className="mt-2 text-xs text-muted-foreground">
+                                  <span className="font-medium">
+                                    Configuration:
+                                  </span>{" "}
+                                  {Object.keys(toolArgs).length} parameter
+                                  {Object.keys(toolArgs).length > 1 ? "s" : ""}
+                                </div>
+                              )}
                           </div>
                         );
                       }
@@ -1057,6 +1438,7 @@ export default function ChatPlaygroundPage() {
                 prev ? { ...prev, messages, updatedAt: Date.now() } : prev
               )
             }
+            onRAGFileUpload={handleRAGFileUpload}
           />
         </div>
       </div>
@@ -1086,14 +1468,16 @@ export default function ChatPlaygroundPage() {
                     <SelectValue placeholder="Select Model" />
                   </SelectTrigger>
                   <SelectContent>
-                    {models.map(model => (
-                      <SelectItem
-                        key={model.identifier}
-                        value={model.identifier}
-                      >
-                        {model.identifier}
-                      </SelectItem>
-                    ))}
+                    {models
+                      .filter(model => model.model_type === "llm")
+                      .map(model => (
+                        <SelectItem
+                          key={model.identifier}
+                          value={model.identifier}
+                        >
+                          {model.identifier}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1194,6 +1578,80 @@ export default function ChatPlaygroundPage() {
                   text generation agents work without tools.
                 </p>
               </div>
+
+              {/* Vector DB Configuration for RAG */}
+              {selectedToolgroups.includes("builtin::rag") && (
+                <div>
+                  <label className="text-sm font-medium block mb-2">
+                    Vector Databases for RAG
+                  </label>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowCreateVectorDB(true)}
+                    >
+                      + Create Vector DB
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {availableVectorDBs.length} available
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {availableVectorDBs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No vector databases available. Create one to use RAG
+                        tools.
+                      </p>
+                    ) : (
+                      availableVectorDBs.map(vectorDB => (
+                        <label
+                          key={vectorDB.identifier}
+                          className="flex items-center space-x-2"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedVectorDBs.includes(
+                              vectorDB.identifier
+                            )}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedVectorDBs(prev => [
+                                  ...prev,
+                                  vectorDB.identifier,
+                                ]);
+                              } else {
+                                setSelectedVectorDBs(prev =>
+                                  prev.filter(id => id !== vectorDB.identifier)
+                                );
+                              }
+                            }}
+                            className="rounded border-input"
+                          />
+                          <span className="text-sm">
+                            <code className="bg-muted px-1 rounded text-xs">
+                              {vectorDB.identifier}
+                            </code>
+                            {vectorDB.vector_db_name && (
+                              <span className="text-muted-foreground ml-2">
+                                ({vectorDB.vector_db_name})
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  {selectedVectorDBs.length === 0 &&
+                    selectedToolgroups.includes("builtin::rag") && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        ⚠️ RAG tool selected but no vector databases chosen.
+                        Create or select a vector database.
+                      </p>
+                    )}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 pt-4">
@@ -1204,12 +1662,14 @@ export default function ChatPlaygroundPage() {
                       newAgentName,
                       newAgentInstructions,
                       selectedModel,
-                      selectedToolgroups
+                      selectedToolgroups,
+                      selectedVectorDBs
                     );
                     setShowCreateAgent(false);
                     setNewAgentName("");
                     setNewAgentInstructions("You are a helpful assistant.");
                     setSelectedToolgroups([]);
+                    setSelectedVectorDBs([]);
                   } catch (error) {
                     console.error("Failed to create agent:", error);
                   }
@@ -1226,6 +1686,7 @@ export default function ChatPlaygroundPage() {
                   setNewAgentName("");
                   setNewAgentInstructions("You are a helpful assistant.");
                   setSelectedToolgroups([]);
+                  setSelectedVectorDBs([]);
                 }}
                 className="flex-1"
               >
@@ -1233,6 +1694,17 @@ export default function ChatPlaygroundPage() {
               </Button>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* Create Vector DB Modal */}
+      {showCreateVectorDB && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <VectorDBCreator
+            models={models}
+            onVectorDBCreated={handleVectorDBCreated}
+            onCancel={() => setShowCreateVectorDB(false)}
+          />
         </div>
       )}
     </div>
