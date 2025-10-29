@@ -628,7 +628,13 @@ export default function FilesPage() {
                       {new Date(file.uploadedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      {getStatusBadge(file.status)}
+                      {(() => {
+                        const count = fileVSCounts[file.id] || 0;
+                        if (count === 0 && file.status !== "processing" && file.status !== "error") {
+                          return <Badge variant="secondary" className="bg-blue-100 text-blue-800">Uploaded</Badge>;
+                        }
+                        return getStatusBadge(file.status);
+                      })()}
                     </TableCell>
                     <TableCell>
                       {(fileVSCounts[file.id] || 0) > 0 ? (
