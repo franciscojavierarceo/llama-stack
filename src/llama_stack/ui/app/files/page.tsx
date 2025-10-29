@@ -252,6 +252,15 @@ export default function FilesPage() {
   useEffect(() => {
     if (!isBackendConnected) return;
     let cancelled = false;
+    const inferTypeFromFilename = (filename: string): string => {
+      const name = (filename || "").toLowerCase();
+      if (/(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.bmp|\.svg)$/.test(name)) return "image";
+      if (/\.pdf$/.test(name)) return "pdf";
+      if (/(\.ppt|\.pptx|\.key)$/.test(name)) return "presentation";
+      if (/(\.xls|\.xlsx|\.csv)$/.test(name)) return "spreadsheet";
+      if (/(\.doc|\.docx|\.md|\.txt)$/.test(name)) return "document";
+      return "document";
+    };
     const formatBytes = (bytes?: number) => {
       if (!bytes || bytes <= 0) return "—";
       const units = ["B", "KB", "MB", "GB", "TB"]; 
@@ -272,8 +281,8 @@ export default function FilesPage() {
         const mapped = list.map((f: any) => ({
           id: f.id,
           name: f.name || f.filename || '',
-          type: 'document',
-          size: formatBytes(f.size_bytes),
+          type: inferTypeFromFilename(f.name || f.filename || ''),
+          size: formatBytes((f.size_bytes ?? f.bytes) as number),
           uploadedAt: f.created_at ? new Date(f.created_at * 1000).toISOString() : new Date().toISOString(),
           status: 'processed',
           vectorStoreId: null,
@@ -341,6 +350,15 @@ export default function FilesPage() {
       if (!resp.ok) return;
       const data = await resp.json();
       const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+      const inferTypeFromFilename = (filename: string): string => {
+        const name = (filename || "").toLowerCase();
+        if (/(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.bmp|\.svg)$/.test(name)) return "image";
+        if (/\.pdf$/.test(name)) return "pdf";
+        if (/(\.ppt|\.pptx|\.key)$/.test(name)) return "presentation";
+        if (/(\.xls|\.xlsx|\.csv)$/.test(name)) return "spreadsheet";
+        if (/(\.doc|\.docx|\.md|\.txt)$/.test(name)) return "document";
+        return "document";
+      };
       const formatBytes = (bytes?: number) => {
         if (!bytes || bytes <= 0) return "—";
         const units = ["B", "KB", "MB", "GB", "TB"]; 
@@ -355,8 +373,8 @@ export default function FilesPage() {
       const mapped = list.map((f: any) => ({
         id: f.id,
         name: f.name || f.filename || '',
-        type: 'document',
-        size: typeof f.size_bytes === 'number' ? formatBytes(f.size_bytes) : '—',
+        type: inferTypeFromFilename(f.name || f.filename || ''),
+        size: typeof (f.size_bytes ?? f.bytes) === 'number' ? formatBytes((f.size_bytes ?? f.bytes) as number) : '—',
         uploadedAt: f.created_at ? new Date(f.created_at * 1000).toISOString() : new Date().toISOString(),
         status: 'processed',
         vectorStoreId: null,
