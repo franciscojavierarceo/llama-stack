@@ -46,6 +46,11 @@ const manageItems = [
     icon: MessagesSquare,
   },
   {
+    title: "Files",
+    url: "/files",
+    icon: MessagesSquare,
+  },
+  {
     title: "Vector Stores",
     url: "/logs/vector-stores",
     icon: Database,
