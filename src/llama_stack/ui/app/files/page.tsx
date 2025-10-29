@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -181,6 +182,7 @@ const getStatusBadge = (status: string) => {
 };
 
 export default function FilesPage() {
+  const router = useRouter();
   const [files, setFiles] = useState(mockFiles);
   const [searchTerm, setSearchTerm] = useState("");
   const [isBackendConnected, setIsBackendConnected] = useState(false);
@@ -203,18 +205,59 @@ export default function FilesPage() {
     checkBackend();
   }, []);
 
+  // Load real files when backend is connected
+  useEffect(() => {
+    if (!isBackendConnected) return;
+    let cancelled = false;
+    const formatBytes = (bytes?: number) => {
+      if (!bytes || bytes <= 0) return "—";
+      const units = ["B", "KB", "MB", "GB", "TB"]; 
+      let i = 0;
+      let n = bytes;
+      while (n >= 1024 && i < units.length - 1) {
+        n /= 1024;
+        i += 1;
+      }
+      return `${n.toFixed(1)} ${units[i]}`;
+    };
+    const loadFiles = async () => {
+      try {
+        const resp = await fetch('/api/v1/files');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        const mapped = list.map((f: any) => ({
+          id: f.id,
+          name: f.name || f.filename || '',
+          type: 'document',
+          size: formatBytes(f.size_bytes),
+          uploadedAt: f.created_at ? new Date(f.created_at * 1000).toISOString() : new Date().toISOString(),
+          status: 'processed',
+          vectorStoreId: null,
+          chunks: 0,
+          vectorStoreCount: 0,
+        }));
+        if (!cancelled) setFiles(mapped);
+      } catch (_) {
+        // noop
+      }
+    };
+    loadFiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBackendConnected]);
+
   const filteredFiles = files.filter(file =>
     file.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleUpload = () => {
-    // Placeholder for file upload functionality
-    alert("File upload functionality would be implemented here when backend is connected");
+    router.push('/files/upload');
   };
 
   const handleViewFile = (fileId: string) => {
-    // Placeholder for viewing file details
-    alert(`View file ${fileId} - would show file details and chunks`);
+    router.push(`/files/${fileId}`);
   };
 
   const handleDeleteFile = (fileId: string) => {
@@ -241,8 +284,9 @@ export default function FilesPage() {
     setSelectedFiles(newSelected);
   };
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
+  const handleSelectAll = (checked: boolean | string) => {
+    const isChecked = checked === true;
+    if (isChecked) {
       setSelectedFiles(new Set(filteredFiles.map(file => file.id)));
     } else {
       setSelectedFiles(new Set());
@@ -394,7 +438,7 @@ export default function FilesPage() {
                     <TableCell>
                       <Checkbox
                         checked={selectedFiles.has(file.id)}
-                        onCheckedChange={(checked) => handleSelectFile(file.id, checked as boolean)}
+                        onCheckedChange={(checked: boolean | string) => handleSelectFile(file.id, checked === true)}
                       />
                     </TableCell>
                     <TableCell className="font-mono text-sm">
