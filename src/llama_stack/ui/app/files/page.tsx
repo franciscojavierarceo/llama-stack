@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { FilePreview } from "@/components/ui/file-preview";
 import {
   Table,
   TableBody,
@@ -198,6 +199,14 @@ export default function FilesPage() {
   const [isAddingToVectorStore, setIsAddingToVectorStore] = useState(false);
   const client = useAuthClient();
 
+  // Upload modal state
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
+  const [purpose, setPurpose] = useState<string>("assistants");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   // Check if backend is connected
   useEffect(() => {
     const checkBackend = async () => {
@@ -277,12 +286,46 @@ export default function FilesPage() {
     };
   }, [isBackendConnected]);
 
+  const reloadFiles = async () => {
+    if (!isBackendConnected) return;
+    try {
+      const resp = await fetch('/api/v1/files');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+      const formatBytes = (bytes?: number) => {
+        if (!bytes || bytes <= 0) return "—";
+        const units = ["B", "KB", "MB", "GB", "TB"]; 
+        let i = 0;
+        let n = bytes as number;
+        while (n >= 1024 && i < units.length - 1) {
+          n /= 1024;
+          i += 1;
+        }
+        return `${n.toFixed(1)} ${units[i]}`;
+      };
+      const mapped = list.map((f: any) => ({
+        id: f.id,
+        name: f.name || f.filename || '',
+        type: 'document',
+        size: typeof f.size_bytes === 'number' ? formatBytes(f.size_bytes) : '—',
+        uploadedAt: f.created_at ? new Date(f.created_at * 1000).toISOString() : new Date().toISOString(),
+        status: 'processed',
+        vectorStoreId: null,
+        vectorStoreCount: 0,
+      }));
+      setFiles(mapped);
+    } catch (_) {
+      // ignore
+    }
+  };
+
   const filteredFiles = files.filter(file =>
     file.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleUpload = () => {
-    router.push('/files/upload');
+    setIsUploadModalOpen(true);
   };
 
   const handleViewFile = (fileId: string) => {
@@ -672,6 +715,116 @@ export default function FilesPage() {
                 onClick={() => setIsVectorStoresListModalOpen(false)}
               >
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Upload Files Modal */}
+        <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
+          <DialogContent className="sm:max-w-[560px]">
+            <DialogHeader>
+              <DialogTitle>Upload Files</DialogTitle>
+              <DialogDescription>Drag and drop files or choose from your computer.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Purpose</label>
+                <Select value={purpose} onValueChange={setPurpose}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Select purpose" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="assistants">assistants</SelectItem>
+                    <SelectItem value="responses">responses</SelectItem>
+                    <SelectItem value="fine-tune">fine-tune</SelectItem>
+                    <SelectItem value="batch">batch</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div
+                className="relative flex h-40 w-full items-center justify-center rounded-md border border-dashed border-border bg-background text-sm text-muted-foreground"
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (e.dataTransfer?.files?.length) {
+                    setSelectedUploadFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  <span>Drop files here or click to select</span>
+                </div>
+                <input
+                  type="file"
+                  multiple
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  onChange={(e) => {
+                    if (e.target.files?.length) {
+                      setSelectedUploadFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                    }
+                  }}
+                />
+              </div>
+
+              {selectedUploadFiles.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedUploadFiles.map((f, i) => (
+                    <FilePreview
+                      key={`${f.name}-${i}`}
+                      file={f}
+                      onRemove={() => setSelectedUploadFiles(prev => prev.filter((_, idx) => idx !== i))}
+                    />
+                  ))}
+                </div>
+              ) : null}
+
+              {uploadError ? (
+                <div className="text-sm text-destructive">{uploadError}</div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsUploadModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={selectedUploadFiles.length === 0 || isUploading}
+                onClick={async () => {
+                  if (selectedUploadFiles.length === 0) return;
+                  setIsUploading(true);
+                  setUploadError(null);
+                  try {
+                    for (const file of selectedUploadFiles) {
+                      const form = new FormData();
+                      form.append('file', file);
+                      form.append('purpose', purpose);
+                      const resp = await fetch('/api/v1/files', { method: 'POST', body: form });
+                      if (!resp.ok) {
+                        const text = await resp.text();
+                        throw new Error(text || `${resp.status} ${resp.statusText}`);
+                      }
+                    }
+                    setSelectedUploadFiles([]);
+                    setIsUploadModalOpen(false);
+                    await reloadFiles();
+                  } catch (e) {
+                    setUploadError(e instanceof Error ? e.message : 'Upload failed');
+                  } finally {
+                    setIsUploading(false);
+                  }
+                }}
+              >
+                {isUploading ? 'Uploading...' : 'Upload'}
               </Button>
             </DialogFooter>
           </DialogContent>
