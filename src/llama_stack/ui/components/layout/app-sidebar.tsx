@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Settings2,
   Compass,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -36,6 +37,16 @@ const createItems = [
 
 const manageItems = [
   {
+    title: "Files",
+    url: "/files",
+    icon: FileText,
+  },
+  {
+    title: "Vector Stores",
+    url: "/logs/vector-stores",
+    icon: Database,
+  },
+  {
     title: "Chat Completions",
     url: "/logs/chat-completions",
     icon: MessageSquareText,
@@ -44,16 +55,6 @@ const manageItems = [
     title: "Responses",
     url: "/logs/responses",
     icon: MessagesSquare,
-  },
-  {
-    title: "Files",
-    url: "/files",
-    icon: MessagesSquare,
-  },
-  {
-    title: "Vector Stores",
-    url: "/logs/vector-stores",
-    icon: Database,
   },
   {
     title: "Documentation",
