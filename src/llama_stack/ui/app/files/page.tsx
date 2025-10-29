@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuthClient } from "@/hooks/use-auth-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -191,6 +192,11 @@ export default function FilesPage() {
   const [selectedVectorStore, setSelectedVectorStore] = useState<string>("");
   const [isVectorStoresListModalOpen, setIsVectorStoresListModalOpen] = useState(false);
   const [selectedFileForVectorStores, setSelectedFileForVectorStores] = useState<string>("");
+  const [vectorStores, setVectorStores] = useState<Array<{ id: string; name?: string }>>([]);
+  const [isLoadingVectorStores, setIsLoadingVectorStores] = useState(false);
+  const [vectorStoresError, setVectorStoresError] = useState<string | null>(null);
+  const [isAddingToVectorStore, setIsAddingToVectorStore] = useState(false);
+  const client = useAuthClient();
 
   // Check if backend is connected
   useEffect(() => {
@@ -204,6 +210,29 @@ export default function FilesPage() {
     };
     checkBackend();
   }, []);
+
+  // Load real vector stores when backend is connected and modal opens (via authed client)
+  useEffect(() => {
+    if (!isBackendConnected || !isVectorStoreModalOpen) return;
+    let cancelled = false;
+    const loadVectorStores = async () => {
+      setIsLoadingVectorStores(true);
+      setVectorStoresError(null);
+      try {
+        const resp = await client.vectorStores.list({ limit: 100, order: 'desc' } as any);
+        const list = (resp as any)?.data ?? [];
+        if (!cancelled) setVectorStores(list as Array<{ id: string; name?: string }>);
+      } catch (_) {
+        if (!cancelled) setVectorStoresError('Failed to load vector stores');
+      } finally {
+        if (!cancelled) setIsLoadingVectorStores(false);
+      }
+    };
+    loadVectorStores();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBackendConnected, isVectorStoreModalOpen]);
 
   // Load real files when backend is connected
   useEffect(() => {
@@ -301,25 +330,32 @@ export default function FilesPage() {
     setIsVectorStoreModalOpen(true);
   };
 
-  const handleConfirmAddToVectorStore = () => {
+  const handleConfirmAddToVectorStore = async () => {
     if (!selectedVectorStore) {
       alert("Please select a vector store");
       return;
     }
-    
-    // Update files with new vector store
-    setFiles(files.map(file => 
-      selectedFiles.has(file.id) 
-        ? { ...file, vectorStoreId: selectedVectorStore, status: "processing" as const }
-        : file
-    ));
-    
-    // Reset selections and close modal
-    setSelectedFiles(new Set());
-    setSelectedVectorStore("");
-    setIsVectorStoreModalOpen(false);
-    
-    alert(`Added ${selectedFiles.size} file(s) to vector store`);
+    try {
+      setIsAddingToVectorStore(true);
+      const fileIds = Array.from(selectedFiles);
+      await Promise.all(
+        fileIds.map(fileId => client.vectorStores.files.create(selectedVectorStore, { file_id: fileId } as any))
+      );
+      // Optimistically update local UI
+      setFiles(files.map(file => 
+        selectedFiles.has(file.id) 
+          ? { ...file, vectorStoreId: selectedVectorStore, status: "processing" as const }
+          : file
+      ));
+      setSelectedFiles(new Set());
+      setSelectedVectorStore("");
+      setIsVectorStoreModalOpen(false);
+      alert(`Added ${fileIds.length} file(s) to vector store`);
+    } catch (e) {
+      alert(`Failed to add to vector store: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setIsAddingToVectorStore(false);
+    }
   };
 
   const handleDeleteSelected = () => {
@@ -547,16 +583,21 @@ export default function FilesPage() {
                   <SelectValue placeholder="Select a vector store" />
                 </SelectTrigger>
                 <SelectContent>
-                  {mockVectorStores.map((store) => (
-                    <SelectItem key={store.id} value={store.id}>
-                      <div className="flex items-center justify-between w-full">
-                        <span>{store.name}</span>
-                        <span className="text-sm text-gray-500 ml-2">
-                          ({store.fileCount} files)
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
+                  {isLoadingVectorStores ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">Loading...</div>
+                  ) : vectorStoresError ? (
+                    <div className="px-3 py-2 text-sm text-destructive">{vectorStoresError}</div>
+                  ) : vectorStores.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No vector stores found</div>
+                  ) : (
+                    vectorStores.map(store => (
+                      <SelectItem key={store.id} value={store.id}>
+                        <div className="flex items-center justify-between w-full">
+                          <span>{store.name || store.id}</span>
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -581,10 +622,10 @@ export default function FilesPage() {
             </Button>
             <Button 
               onClick={handleConfirmAddToVectorStore}
-              disabled={!selectedVectorStore}
+              disabled={!selectedVectorStore || isAddingToVectorStore}
             >
               <Check className="h-4 w-4 mr-2" />
-              Add to Vector Store
+              {isAddingToVectorStore ? 'Adding...' : 'Add to Vector Store'}
             </Button>
           </DialogFooter>
         </DialogContent>
