@@ -633,10 +633,10 @@ export default function FilesPage() {
                     <TableCell className="font-mono text-sm">
                       {file.id}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
+                    <TableCell className="max-w-[420px]">
+                      <div className="flex items-center gap-2 min-w-0">
                         {getFileIcon(file.type)}
-                        <span className="font-medium">{file.name}</span>
+                        <span className="font-medium truncate w-full" title={file.name}>{file.name}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-gray-600 dark:text-gray-400">
