@@ -48,7 +48,8 @@ import {
   HardDrive,
   Plus,
   Check,
-  MoreHorizontal
+  MoreHorizontal,
+  Database
 } from "lucide-react";
 
 // Mock data for when backend is not running
@@ -61,7 +62,8 @@ const mockFiles = [
     uploadedAt: "2024-01-15T10:30:00Z",
     status: "processed",
     vectorStoreId: "vs_7a8b9c2d1e3f4g",
-    chunks: 45
+    chunks: 45,
+    vectorStoreCount: 5
   },
   {
     id: "file_4x5y6z7a8b9c", 
@@ -71,7 +73,8 @@ const mockFiles = [
     uploadedAt: "2024-01-14T14:20:00Z",
     status: "processing",
     vectorStoreId: "vs_7a8b9c2d1e3f4g",
-    chunks: 0
+    chunks: 0,
+    vectorStoreCount: 10
   },
   {
     id: "file_1m2n3p4q5r6s",
@@ -81,7 +84,8 @@ const mockFiles = [
     uploadedAt: "2024-01-13T09:15:00Z",
     status: "processed",
     vectorStoreId: "vs_4x5y6z7a8b9c1d",
-    chunks: 23
+    chunks: 23,
+    vectorStoreCount: 3
   },
   {
     id: "file_9t8u7v6w5x4y",
@@ -91,7 +95,8 @@ const mockFiles = [
     uploadedAt: "2024-01-12T16:45:00Z",
     status: "processed",
     vectorStoreId: "vs_7a8b9c2d1e3f4g",
-    chunks: 12
+    chunks: 12,
+    vectorStoreCount: 1
   },
   {
     id: "file_3z2a1b4c5d6e",
@@ -101,7 +106,8 @@ const mockFiles = [
     uploadedAt: "2024-01-11T11:30:00Z", 
     status: "error",
     vectorStoreId: null,
-    chunks: 0
+    chunks: 0,
+    vectorStoreCount: 0
   }
 ];
 
@@ -112,6 +118,38 @@ const mockVectorStores = [
   { id: "vs_1m2n3p4q5r6s7t", name: "Legal Documents", fileCount: 3 },
   { id: "vs_9t8u7v6w5x4y3z", name: "Technical Docs", fileCount: 12 }
 ];
+
+// Mock vector store details for individual files
+const mockFileVectorStores = {
+  "file_7a8b9c2d1e3f": [
+    { id: "vs_7a8b9c2d1e3f4g", name: "Document Store", addedAt: "2024-01-15T10:35:00Z", chunks: 45 },
+    { id: "vs_4x5y6z7a8b9c1d", name: "Research Papers", addedAt: "2024-01-15T11:20:00Z", chunks: 12 },
+    { id: "vs_1m2n3p4q5r6s7t", name: "Legal Documents", addedAt: "2024-01-15T14:10:00Z", chunks: 8 },
+    { id: "vs_9t8u7v6w5x4y3z", name: "Technical Docs", addedAt: "2024-01-15T16:45:00Z", chunks: 15 },
+    { id: "vs_2a3b4c5d6e7f8g", name: "Archive Store", addedAt: "2024-01-16T09:30:00Z", chunks: 10 }
+  ],
+  "file_4x5y6z7a8b9c": [
+    { id: "vs_7a8b9c2d1e3f4g", name: "Document Store", addedAt: "2024-01-14T14:25:00Z", chunks: 0 },
+    { id: "vs_4x5y6z7a8b9c1d", name: "Research Papers", addedAt: "2024-01-14T15:10:00Z", chunks: 0 },
+    { id: "vs_1m2n3p4q5r6s7t", name: "Legal Documents", addedAt: "2024-01-14T16:20:00Z", chunks: 0 },
+    { id: "vs_9t8u7v6w5x4y3z", name: "Technical Docs", addedAt: "2024-01-14T17:15:00Z", chunks: 0 },
+    { id: "vs_2a3b4c5d6e7f8g", name: "Archive Store", addedAt: "2024-01-14T18:00:00Z", chunks: 0 },
+    { id: "vs_5h6i7j8k9l0m1n", name: "Presentation Store", addedAt: "2024-01-14T19:30:00Z", chunks: 0 },
+    { id: "vs_3o4p5q6r7s8t9u", name: "Media Store", addedAt: "2024-01-15T08:45:00Z", chunks: 0 },
+    { id: "vs_7v8w9x0y1z2a3b", name: "Training Data", addedAt: "2024-01-15T10:20:00Z", chunks: 0 },
+    { id: "vs_4c5d6e7f8g9h0i", name: "Analytics Store", addedAt: "2024-01-15T12:15:00Z", chunks: 0 },
+    { id: "vs_1j2k3l4m5n6o7p", name: "Backup Store", addedAt: "2024-01-15T14:30:00Z", chunks: 0 }
+  ],
+  "file_1m2n3p4q5r6s": [
+    { id: "vs_4x5y6z7a8b9c1d", name: "Research Papers", addedAt: "2024-01-13T09:20:00Z", chunks: 23 },
+    { id: "vs_9t8u7v6w5x4y3z", name: "Technical Docs", addedAt: "2024-01-13T10:15:00Z", chunks: 15 },
+    { id: "vs_2a3b4c5d6e7f8g", name: "Archive Store", addedAt: "2024-01-13T11:30:00Z", chunks: 8 }
+  ],
+  "file_9t8u7v6w5x4y": [
+    { id: "vs_7a8b9c2d1e3f4g", name: "Document Store", addedAt: "2024-01-12T16:50:00Z", chunks: 12 }
+  ],
+  "file_3z2a1b4c5d6e": []
+};
 
 const getFileIcon = (type: string) => {
   switch (type) {
@@ -149,6 +187,8 @@ export default function FilesPage() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [isVectorStoreModalOpen, setIsVectorStoreModalOpen] = useState(false);
   const [selectedVectorStore, setSelectedVectorStore] = useState<string>("");
+  const [isVectorStoresListModalOpen, setIsVectorStoresListModalOpen] = useState(false);
+  const [selectedFileForVectorStores, setSelectedFileForVectorStores] = useState<string>("");
 
   // Check if backend is connected
   useEffect(() => {
@@ -184,6 +224,11 @@ export default function FilesPage() {
   const handleAddSingleFileToVectorStore = (fileId: string) => {
     setSelectedFiles(new Set([fileId]));
     setIsVectorStoreModalOpen(true);
+  };
+
+  const handleViewVectorStores = (fileId: string) => {
+    setSelectedFileForVectorStores(fileId);
+    setIsVectorStoresListModalOpen(true);
   };
 
   const handleSelectFile = (fileId: string, checked: boolean) => {
@@ -327,20 +372,21 @@ export default function FilesPage() {
           <div className="overflow-auto">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[50px]">
-                    <Checkbox
-                      checked={selectedFiles.size === filteredFiles.length && filteredFiles.length > 0}
-                      onCheckedChange={handleSelectAll}
-                    />
-                  </TableHead>
-                  <TableHead className="w-[100px]">ID</TableHead>
-                  <TableHead>File Name</TableHead>
-                  <TableHead className="w-[120px]">File Size</TableHead>
-                  <TableHead className="w-[150px]">Created</TableHead>
-                  <TableHead className="w-[100px]">Status</TableHead>
-                  <TableHead className="w-[100px]">Actions</TableHead>
-                </TableRow>
+                  <TableRow>
+                    <TableHead className="w-[50px]">
+                      <Checkbox
+                        checked={selectedFiles.size === filteredFiles.length && filteredFiles.length > 0}
+                        onCheckedChange={handleSelectAll}
+                      />
+                    </TableHead>
+                    <TableHead className="w-[100px]">ID</TableHead>
+                    <TableHead>File Name</TableHead>
+                    <TableHead className="w-[120px]">File Size</TableHead>
+                    <TableHead className="w-[150px]">Created</TableHead>
+                    <TableHead className="w-[100px]">Status</TableHead>
+                    <TableHead className="w-[120px]">Vector Stores</TableHead>
+                    <TableHead className="w-[100px]">Actions</TableHead>
+                  </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredFiles.map((file) => (
@@ -368,6 +414,18 @@ export default function FilesPage() {
                     </TableCell>
                     <TableCell>
                       {getStatusBadge(file.status)}
+                    </TableCell>
+                    <TableCell>
+                      {file.vectorStoreCount > 0 ? (
+                        <button
+                          onClick={() => handleViewVectorStores(file.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
+                        >
+                          {file.vectorStoreCount}
+                        </button>
+                      ) : (
+                        <span className="text-gray-400">0</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -486,7 +544,53 @@ export default function FilesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+        </Dialog>
+
+        {/* Vector Stores List Modal */}
+        <Dialog open={isVectorStoresListModalOpen} onOpenChange={setIsVectorStoresListModalOpen}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Vector Stores for File</DialogTitle>
+              <DialogDescription>
+                Vector stores containing this file and their details.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              {selectedFileForVectorStores && mockFileVectorStores[selectedFileForVectorStores as keyof typeof mockFileVectorStores]?.length > 0 ? (
+                <div className="space-y-3">
+                  {mockFileVectorStores[selectedFileForVectorStores as keyof typeof mockFileVectorStores].map((store) => (
+                    <div key={store.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex-1">
+                        <h4 className="font-medium text-sm">{store.name}</h4>
+                        <p className="text-xs text-gray-500">ID: {store.id}</p>
+                        <p className="text-xs text-gray-500">
+                          Added: {new Date(store.addedAt).toLocaleDateString()} at {new Date(store.addedAt).toLocaleTimeString()}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium">{store.chunks} chunks</div>
+                        <div className="text-xs text-gray-500">processed</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Database className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No vector stores found for this file.</p>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsVectorStoresListModalOpen(false)}
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
