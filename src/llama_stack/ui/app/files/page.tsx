@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthClient } from "@/hooks/use-auth-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -202,6 +202,7 @@ export default function FilesPage() {
   const [fileStoresError, setFileStoresError] = useState<string | null>(null);
   const client = useAuthClient();
   const [isLoadingVSCounts, setIsLoadingVSCounts] = useState(false);
+  const [fileVSCounts, setFileVSCounts] = useState<Record<string, number>>({});
 
   // Upload modal state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -291,6 +292,7 @@ export default function FilesPage() {
   }, [isBackendConnected]);
 
   // Load vector store counts for the listed files
+  const fileIdsKey = useMemo(() => files.map(f => f.id).sort().join(','), [files]);
   useEffect(() => {
     if (!isBackendConnected) return;
     if (!files || files.length === 0) return;
@@ -302,8 +304,9 @@ export default function FilesPage() {
         const vsResp: any = await client.vectorStores.list({ limit: 100, order: 'desc' } as any);
         const stores: any[] = vsResp?.data ?? [];
         const counts: Record<string, number> = {};
+        const storesToCheck = stores.filter((s: any) => (s?.file_counts?.total ?? 0) > 0);
         await Promise.all(
-          stores.map(async (store: any) => {
+          storesToCheck.map(async (store: any) => {
             try {
               const page: any = await client.vectorStores.files.list(store.id, { limit: 1000, order: 'desc' } as any);
               const items: any[] = page?.data ?? [];
@@ -318,9 +321,7 @@ export default function FilesPage() {
             }
           })
         );
-        if (!cancelled) {
-          setFiles(prev => prev.map(f => ({ ...f, vectorStoreCount: counts[f.id] || 0 })) as any);
-        }
+        if (!cancelled) setFileVSCounts(counts);
       } catch {
         // ignore
       } finally {
@@ -331,7 +332,7 @@ export default function FilesPage() {
     return () => {
       cancelled = true;
     };
-  }, [isBackendConnected, files, client.vectorStores]);
+  }, [isBackendConnected, fileIdsKey, client.vectorStores]);
 
   const reloadFiles = async () => {
     if (!isBackendConnected) return;
@@ -473,6 +474,14 @@ export default function FilesPage() {
           ? { ...file, vectorStoreId: selectedVectorStore, status: "processing" as const }
           : file
       ));
+      // Optimistically increment counts
+      setFileVSCounts(prev => {
+        const next = { ...prev };
+        for (const fid of fileIds) {
+          next[fid] = (next[fid] || 0) + 1;
+        }
+        return next;
+      });
       setSelectedFiles(new Set());
       setSelectedVectorStore("");
       setIsVectorStoreModalOpen(false);
@@ -622,12 +631,12 @@ export default function FilesPage() {
                       {getStatusBadge(file.status)}
                     </TableCell>
                     <TableCell>
-                      {file.vectorStoreCount > 0 ? (
+                      {(fileVSCounts[file.id] || 0) > 0 ? (
                         <button
                           onClick={() => handleViewVectorStores(file.id)}
                           className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
                         >
-                          {file.vectorStoreCount}
+                          {fileVSCounts[file.id] || 0}
                         </button>
                       ) : (
                         <span className="text-gray-400">0</span>
