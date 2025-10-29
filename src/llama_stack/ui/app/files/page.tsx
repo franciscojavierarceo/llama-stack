@@ -398,8 +398,26 @@ export default function FilesPage() {
     router.push(`/files/${fileId}`);
   };
 
-  const handleDeleteFile = (fileId: string) => {
-    setFiles(files.filter(file => file.id !== fileId));
+  const handleDeleteFile = async (fileId: string) => {
+    const proceed = confirm("Delete this file? This cannot be undone.");
+    if (!proceed) return;
+    try {
+      if (isBackendConnected) {
+        await client.files.delete(fileId as any);
+      }
+      setFiles(prev => prev.filter(file => file.id !== fileId));
+      setSelectedFiles(prev => {
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
+      setFileVSCounts(prev => {
+        const { [fileId]: _omit, ...rest } = prev;
+        return rest;
+      });
+    } catch (e) {
+      alert(`Failed to delete file: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
   };
 
   const handleAddSingleFileToVectorStore = (fileId: string) => {
@@ -511,15 +529,29 @@ export default function FilesPage() {
     }
   };
 
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = async () => {
     if (selectedFiles.size === 0) {
       alert("Please select at least one file");
       return;
     }
-    
-    if (confirm(`Are you sure you want to delete ${selectedFiles.size} file(s)?`)) {
-      setFiles(files.filter(file => !selectedFiles.has(file.id)));
+    const proceed = confirm(`Are you sure you want to delete ${selectedFiles.size} file(s)?`);
+    if (!proceed) return;
+    try {
+      if (isBackendConnected) {
+        await Promise.all(Array.from(selectedFiles).map(fid => client.files.delete(fid as any)));
+      }
+      const ids = new Set(selectedFiles);
+      setFiles(prev => prev.filter(file => !ids.has(file.id)));
       setSelectedFiles(new Set());
+      setFileVSCounts(prev => {
+        const next: Record<string, number> = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (!ids.has(k)) next[k] = v;
+        }
+        return next;
+      });
+    } catch (e) {
+      alert(`Failed to delete some files: ${e instanceof Error ? e.message : 'Unknown error'}`);
     }
   };
 
