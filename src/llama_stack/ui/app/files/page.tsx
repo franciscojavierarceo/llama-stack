@@ -197,7 +197,11 @@ export default function FilesPage() {
   const [isLoadingVectorStores, setIsLoadingVectorStores] = useState(false);
   const [vectorStoresError, setVectorStoresError] = useState<string | null>(null);
   const [isAddingToVectorStore, setIsAddingToVectorStore] = useState(false);
+  const [fileStores, setFileStores] = useState<Array<{ id: string; name?: string }>>([]);
+  const [isLoadingFileStores, setIsLoadingFileStores] = useState(false);
+  const [fileStoresError, setFileStoresError] = useState<string | null>(null);
   const client = useAuthClient();
+  const [isLoadingVSCounts, setIsLoadingVSCounts] = useState(false);
 
   // Upload modal state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -286,6 +290,49 @@ export default function FilesPage() {
     };
   }, [isBackendConnected]);
 
+  // Load vector store counts for the listed files
+  useEffect(() => {
+    if (!isBackendConnected) return;
+    if (!files || files.length === 0) return;
+    let cancelled = false;
+    const loadCounts = async () => {
+      try {
+        setIsLoadingVSCounts(true);
+        const fileIdSet = new Set(files.map(f => f.id));
+        const vsResp: any = await client.vectorStores.list({ limit: 100, order: 'desc' } as any);
+        const stores: any[] = vsResp?.data ?? [];
+        const counts: Record<string, number> = {};
+        await Promise.all(
+          stores.map(async (store: any) => {
+            try {
+              const page: any = await client.vectorStores.files.list(store.id, { limit: 1000, order: 'desc' } as any);
+              const items: any[] = page?.data ?? [];
+              for (const it of items) {
+                const fid = it?.id;
+                if (fid && fileIdSet.has(fid)) {
+                  counts[fid] = (counts[fid] || 0) + 1;
+                }
+              }
+            } catch {
+              // ignore store-level errors
+            }
+          })
+        );
+        if (!cancelled) {
+          setFiles(prev => prev.map(f => ({ ...f, vectorStoreCount: counts[f.id] || 0 })) as any);
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setIsLoadingVSCounts(false);
+      }
+    };
+    loadCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBackendConnected, files, client.vectorStores]);
+
   const reloadFiles = async () => {
     if (!isBackendConnected) return;
     try {
@@ -345,6 +392,42 @@ export default function FilesPage() {
     setSelectedFileForVectorStores(fileId);
     setIsVectorStoresListModalOpen(true);
   };
+
+  // Load real vector stores for selected file when the modal opens
+  useEffect(() => {
+    if (!isBackendConnected || !isVectorStoresListModalOpen || !selectedFileForVectorStores) return;
+    let cancelled = false;
+    const loadFileStores = async () => {
+      setIsLoadingFileStores(true);
+      setFileStoresError(null);
+      setFileStores([]);
+      try {
+        const vsResp: any = await client.vectorStores.list({ limit: 100, order: 'desc' } as any);
+        const stores: any[] = vsResp?.data ?? [];
+        const result: Array<{ id: string; name?: string }> = [];
+        for (const store of stores) {
+          try {
+            const filesPage: any = await client.vectorStores.files.list(store.id, { limit: 1000, order: 'desc' } as any);
+            const items: any[] = filesPage?.data ?? [];
+            if (items.some((it: any) => it?.id === selectedFileForVectorStores)) {
+              result.push({ id: store.id, name: store.name });
+            }
+          } catch {
+            // ignore store-level errors
+          }
+        }
+        if (!cancelled) setFileStores(result);
+      } catch (e) {
+        if (!cancelled) setFileStoresError(e instanceof Error ? e.message : 'Failed to load vector stores');
+      } finally {
+        if (!cancelled) setIsLoadingFileStores(false);
+      }
+    };
+    loadFileStores();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBackendConnected, isVectorStoresListModalOpen, selectedFileForVectorStores, client.vectorStores]);
 
   const handleSelectFile = (fileId: string, checked: boolean) => {
     const newSelected = new Set(selectedFiles);
@@ -684,20 +767,17 @@ export default function FilesPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              {selectedFileForVectorStores && mockFileVectorStores[selectedFileForVectorStores as keyof typeof mockFileVectorStores]?.length > 0 ? (
+              {isLoadingFileStores ? (
+                <div className="text-center py-8 text-gray-500">Loading...</div>
+              ) : fileStoresError ? (
+                <div className="text-center py-8 text-destructive">{fileStoresError}</div>
+              ) : fileStores.length > 0 ? (
                 <div className="space-y-3">
-                  {mockFileVectorStores[selectedFileForVectorStores as keyof typeof mockFileVectorStores].map((store) => (
+                  {fileStores.map((store) => (
                     <div key={store.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex-1">
-                        <h4 className="font-medium text-sm">{store.name}</h4>
+                        <h4 className="font-medium text-sm">{store.name || store.id}</h4>
                         <p className="text-xs text-gray-500">ID: {store.id}</p>
-                        <p className="text-xs text-gray-500">
-                          Added: {new Date(store.addedAt).toLocaleDateString()} at {new Date(store.addedAt).toLocaleTimeString()}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">{store.chunks} chunks</div>
-                        <div className="text-xs text-gray-500">processed</div>
                       </div>
                     </div>
                   ))}
