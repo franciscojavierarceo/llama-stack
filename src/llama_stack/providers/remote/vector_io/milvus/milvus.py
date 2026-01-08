@@ -29,6 +29,7 @@ from llama_stack.providers.utils.vector_io.vector_utils import (
 from llama_stack_api import (
     EmbeddedChunk,
     Files,
+    Filter,
     Inference,
     InterleavedContent,
     QueryChunksResponse,
@@ -504,6 +505,9 @@ class MilvusVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresProtoc
         params: dict[str, Any] | None = None,
         filters: Filter | None = None,
     ) -> QueryChunksResponse:
+        if filters is not None:
+            raise NotImplementedError("Milvus provider does not yet support native filtering")
+
         index = await self._get_and_cache_vector_store_index(vector_store_id)
         if not index:
             raise VectorStoreNotFoundError(vector_store_id)

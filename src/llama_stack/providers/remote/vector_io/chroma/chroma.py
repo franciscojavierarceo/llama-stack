@@ -23,6 +23,7 @@ from llama_stack.providers.utils.vector_io.vector_utils import WeightedInMemoryA
 from llama_stack_api import (
     EmbeddedChunk,
     Files,
+    Filter,
     Inference,
     InterleavedContent,
     QueryChunksResponse,

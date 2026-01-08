@@ -31,6 +31,7 @@ from llama_stack_api import (
     Chunk,
     ChunkMetadata,
     EmbeddedChunk,
+    Filter,
     InterleavedContent,
     OpenAIEmbeddingsRequestWithExtraBody,
     QueryChunksResponse,
