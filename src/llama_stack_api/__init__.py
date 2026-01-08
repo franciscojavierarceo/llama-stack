@@ -214,6 +214,11 @@ from .files import (
     RetrieveFileRequest,
     UploadFileRequest,
 )
+from .filters import (
+    ComparisonFilter,
+    CompoundFilter,
+    Filter,
+)
 from .inference import (
     Bf16QuantizationConfig,
     ChatCompletionResponseEventType,
@@ -682,6 +687,9 @@ __all__ = [
     "ExtraBodyField",
     "FileProcessors",
     "Files",
+    "Filter",
+    "ComparisonFilter",
+    "CompoundFilter",
     "Fp8QuantizationConfig",
     "clear_dynamic_schema_types",
     "get_schema_identifier",
