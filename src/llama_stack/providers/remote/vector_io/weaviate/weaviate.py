@@ -36,7 +36,6 @@ from llama_stack_api import (
     VectorStoreNotFoundError,
     VectorStoresProtocolPrivate,
 )
-from llama_stack_api.filters import Filter as LlamaStackFilter
 from llama_stack_api.internal.kvstore import KVStore
 
 from .config import WeaviateVectorIOConfig

@@ -28,11 +28,8 @@ from llama_stack.providers.utils.vector_io import load_embedded_chunk_with_backw
 from llama_stack.providers.utils.vector_io.filters import ComparisonFilter, CompoundFilter, Filter
 from llama_stack.providers.utils.vector_io.vector_utils import WeightedInMemoryAggregator
 from llama_stack_api import (
-    ComparisonFilter,
-    CompoundFilter,
     EmbeddedChunk,
     Files,
-    Filter,
     Inference,
     QueryChunksResponse,
     VectorIO,

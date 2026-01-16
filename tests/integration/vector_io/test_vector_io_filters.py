@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from llama_stack.providers.utils.vector_io.filters import ComparisonFilter, CompoundFilter
+from llama_stack_api.filters import ComparisonFilter, CompoundFilter
 from llama_stack_api import ChunkMetadata, EmbeddedChunk
 
 from ..conftest import vector_provider_wrapper
