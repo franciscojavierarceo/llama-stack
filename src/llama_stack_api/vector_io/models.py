@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from llama_stack_api.filters import Filter
+# Filter type is defined in the implementation layer
 from llama_stack_api.inference import InterleavedContent
 from llama_stack_api.schema_utils import json_schema_type, register_schema
 
@@ -574,6 +574,7 @@ class OpenAICreateVectorStoreFileBatchRequestWithExtraBody(BaseModel, extra="all
     chunking_strategy: VectorStoreChunkingStrategy | None = None
 
 
+<<<<<<< HEAD:src/llama_stack_api/vector_io/models.py
 __all__ = [
     "Chunk",
     "ChunkMetadata",
