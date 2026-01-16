@@ -26,7 +26,7 @@ from llama_stack.providers.utils.memory.vector_store import (
     content_from_data_and_mime_type,
     make_overlapped_chunks,
 )
-from llama_stack_api.filters import Filter
+from llama_stack_api.filters import ComparisonFilter, CompoundFilter, Filter
 from llama_stack_api import (
     Chunk,
     EmbeddedChunk,
@@ -677,7 +677,7 @@ class OpenAIVectorStoreMixin(ABC):
         self,
         vector_store_id: str,
         query: str | list[str],
-        filters: Filter | None = None,
+        filters: Filter | dict | None = None,
         max_num_results: int | None = 10,
         ranking_options: SearchRankingOptions | None = None,
         rewrite_query: bool | None = False,
