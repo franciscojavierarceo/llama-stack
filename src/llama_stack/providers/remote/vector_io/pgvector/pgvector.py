@@ -224,7 +224,9 @@ class PGVectorIndex(EmbeddingIndex):
             if self.vector_index.type == PGVectorIndexType.IVFFlat:
                 await self.create_ivfflat_vector_index(cur)
 
-    async def query_vector(self, embedding: NDArray, k: int, score_threshold: float) -> QueryChunksResponse:
+    async def query_vector(
+        self, embedding: NDArray, k: int, score_threshold: float, filters: Any = None
+    ) -> QueryChunksResponse:
         """
         Performs vector similarity search using PostgreSQL's search function. Default distance metric is COSINE.
 
@@ -232,10 +234,15 @@ class PGVectorIndex(EmbeddingIndex):
             embedding: The query embedding vector
             k: Number of results to return
             score_threshold: Minimum similarity score threshold
+            filters: Optional filters (not yet supported for PGVector provider)
 
         Returns:
             QueryChunksResponse with combined results
         """
+        # Filters are not yet implemented for PGVector provider
+        if filters is not None:
+            raise NotImplementedError("PGVector provider does not yet support native filtering")
+
         pgvector_search_function = self.get_pgvector_search_function()
 
         with self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
