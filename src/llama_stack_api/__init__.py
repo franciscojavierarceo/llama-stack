@@ -201,6 +201,7 @@ from .eval import (
     RunEvalRequest,
 )
 from .file_processors import FileProcessors, ProcessFileResponse
+from .filters import ComparisonFilter, CompoundFilter, Filter
 from .files import (
     DeleteFileRequest,
     ExpiresAfter,
