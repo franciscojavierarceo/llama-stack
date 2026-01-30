@@ -574,7 +574,6 @@ class OpenAICreateVectorStoreFileBatchRequestWithExtraBody(BaseModel, extra="all
     chunking_strategy: VectorStoreChunkingStrategy | None = None
 
 
-<<<<<<< HEAD:src/llama_stack_api/vector_io/models.py
 __all__ = [
     "Chunk",
     "ChunkMetadata",

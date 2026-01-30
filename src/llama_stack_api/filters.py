@@ -44,7 +44,7 @@ class CompoundFilter(BaseModel):
     """
 
     type: Literal["and", "or"]
-    filters: list[Filter]
+    filters: list[Filter]  # Use forward reference to break circular dependency
 
 
 # Discriminated union of all filter types
@@ -52,3 +52,6 @@ Filter = Annotated[
     ComparisonFilter | CompoundFilter,
     Field(discriminator="type"),
 ]
+
+# Update forward references for Pydantic
+CompoundFilter.model_rebuild()
