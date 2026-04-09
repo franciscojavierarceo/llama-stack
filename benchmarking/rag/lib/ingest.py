@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import logging  # allow-direct-logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
 
@@ -21,6 +22,19 @@ logger = logging.getLogger("rag-benchmarks")
 UPLOAD_BATCH_SIZE = 50  # Files per checkpoint save
 ATTACH_BATCH_SIZE = 500  # Max file IDs per file_batches.create
 POLL_INTERVAL = 2.0
+UPLOAD_WORKERS = 10  # Concurrent file upload threads
+
+
+def _upload_one_file(client: OpenAI, doc_id: str, content: str) -> tuple[str, str]:
+    """Upload a single file and return (doc_id, file_id)."""
+    filename = f"{doc_id}.txt"
+    file_obj = retry_with_backoff(
+        lambda c=content, f=filename: client.files.create(
+            file=(f, io.BytesIO(c.encode("utf-8"))),
+            purpose="assistants",
+        )
+    )
+    return doc_id, file_obj.id
 
 
 def ingest_corpus(
@@ -62,38 +76,40 @@ def ingest_corpus(
         logger.info(f"All {len(corpus)} documents already uploaded.")
         return vs_id, mapping
 
-    logger.info(f"Uploading {len(to_upload)} documents ({len(mapping)} already done)...")
+    logger.info(f"Uploading {len(to_upload)} documents ({len(mapping)} already done) with {UPLOAD_WORKERS} workers...")
 
-    # Phase 1: Upload all files to Files API (checkpointed per small batch)
+    # Phase 1: Upload all files to Files API (concurrent, checkpointed per batch)
     unattached_ids: list[str] = list(ckpt.get("unattached_file_ids", []))
     doc_items = list(to_upload.items())
     num_upload_batches = (len(doc_items) + UPLOAD_BATCH_SIZE - 1) // UPLOAD_BATCH_SIZE
 
-    for batch in progress_bar(
-        batched(doc_items, UPLOAD_BATCH_SIZE),
-        desc="Uploading files",
-        total=num_upload_batches,
-    ):
-        for doc_id, doc in batch:
-            title = doc.get("title", "")
-            text = doc.get("text", "")
-            content = f"{title}\n\n{text}" if title else text
-            if not content.strip():
-                logger.debug(f"Skipping empty document {doc_id}")
-                continue
-            filename = f"{doc_id}.txt"
+    with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+        for batch in progress_bar(
+            batched(doc_items, UPLOAD_BATCH_SIZE),
+            desc="Uploading files",
+            total=num_upload_batches,
+        ):
+            # Submit all files in this batch concurrently
+            futures = {}
+            for doc_id, doc in batch:
+                title = doc.get("title", "")
+                text = doc.get("text", "")
+                content = f"{title}\n\n{text}" if title else text
+                if not content.strip():
+                    logger.debug(f"Skipping empty document {doc_id}")
+                    continue
 
-            file_obj = retry_with_backoff(
-                lambda c=content, f=filename: client.files.create(
-                    file=(f, io.BytesIO(c.encode("utf-8"))),
-                    purpose="assistants",
-                )
-            )
-            mapping.add(doc_id, file_obj.id)
-            unattached_ids.append(file_obj.id)
+                fut = executor.submit(_upload_one_file, client, doc_id, content)
+                futures[fut] = doc_id
 
-        # Save unattached IDs so we can resume attachment if interrupted
-        ckpt.set("unattached_file_ids", unattached_ids)
+            # Collect results
+            for fut in as_completed(futures):
+                doc_id, file_id = fut.result()
+                mapping.add(doc_id, file_id)
+                unattached_ids.append(file_id)
+
+            # Save unattached IDs so we can resume attachment if interrupted
+            ckpt.set("unattached_file_ids", unattached_ids)
 
     # Phase 2: Attach files to vector store in large batches
     if unattached_ids:
