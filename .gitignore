@@ -54,3 +54,9 @@ client-sdks/openapi/openapi-config.json
 client-sdks/openapi/sdks/
 client-sdks/openapi/.openapi-generator/
 .agentready
+
+# RAG benchmark artifacts (downloaded datasets, results, venvs)
+benchmarking/rag/data/
+benchmarking/rag/results/
+benchmarking/rag/.venv/
+benchmarking/rag/.env
