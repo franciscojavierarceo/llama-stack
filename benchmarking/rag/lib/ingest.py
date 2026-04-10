@@ -72,44 +72,49 @@ def ingest_corpus(
     # --- Upload files ---
     to_upload = {doc_id: doc for doc_id, doc in corpus.items() if doc_id not in mapping.uploaded_doc_ids}
 
-    if not to_upload:
-        logger.info(f"All {len(corpus)} documents already uploaded.")
-        return vs_id, mapping
-
-    logger.info(f"Uploading {len(to_upload)} documents ({len(mapping)} already done) with {UPLOAD_WORKERS} workers...")
-
     # Phase 1: Upload all files to Files API (concurrent, checkpointed per batch)
     unattached_ids: list[str] = list(ckpt.get("unattached_file_ids", []))
-    doc_items = list(to_upload.items())
-    num_upload_batches = (len(doc_items) + UPLOAD_BATCH_SIZE - 1) // UPLOAD_BATCH_SIZE
 
-    with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
-        for batch in progress_bar(
-            batched(doc_items, UPLOAD_BATCH_SIZE),
-            desc="Uploading files",
-            total=num_upload_batches,
-        ):
-            # Submit all files in this batch concurrently
-            futures = {}
-            for doc_id, doc in batch:
-                title = doc.get("title", "")
-                text = doc.get("text", "")
-                content = f"{title}\n\n{text}" if title else text
-                if not content.strip():
-                    logger.debug(f"Skipping empty document {doc_id}")
-                    continue
+    if not to_upload and not unattached_ids:
+        logger.info(f"All {len(corpus)} documents already uploaded and attached.")
+        return vs_id, mapping
 
-                fut = executor.submit(_upload_one_file, client, doc_id, content)
-                futures[fut] = doc_id
+    if to_upload:
+        logger.info(
+            f"Uploading {len(to_upload)} documents ({len(mapping)} already done) with {UPLOAD_WORKERS} workers..."
+        )
+        doc_items = list(to_upload.items())
+        num_upload_batches = (len(doc_items) + UPLOAD_BATCH_SIZE - 1) // UPLOAD_BATCH_SIZE
 
-            # Collect results
-            for fut in as_completed(futures):
-                doc_id, file_id = fut.result()
-                mapping.add(doc_id, file_id)
-                unattached_ids.append(file_id)
+        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+            for batch in progress_bar(
+                batched(doc_items, UPLOAD_BATCH_SIZE),
+                desc="Uploading files",
+                total=num_upload_batches,
+            ):
+                # Submit all files in this batch concurrently
+                futures = {}
+                for doc_id, doc in batch:
+                    title = doc.get("title", "")
+                    text = doc.get("text", "")
+                    content = f"{title}\n\n{text}" if title else text
+                    if not content.strip():
+                        logger.debug(f"Skipping empty document {doc_id}")
+                        continue
 
-            # Save unattached IDs so we can resume attachment if interrupted
-            ckpt.set("unattached_file_ids", unattached_ids)
+                    fut = executor.submit(_upload_one_file, client, doc_id, content)
+                    futures[fut] = doc_id
+
+                # Collect results
+                for fut in as_completed(futures):
+                    doc_id, file_id = fut.result()
+                    mapping.add(doc_id, file_id)
+                    unattached_ids.append(file_id)
+
+                # Save unattached IDs so we can resume attachment if interrupted
+                ckpt.set("unattached_file_ids", unattached_ids)
+    elif unattached_ids:
+        logger.info(f"All files uploaded. {len(unattached_ids)} files pending attachment.")
 
     # Phase 2: Attach files to vector store in large batches
     if unattached_ids:
