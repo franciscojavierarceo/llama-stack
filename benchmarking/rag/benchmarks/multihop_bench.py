@@ -38,42 +38,30 @@ class MultiHOPBenchmark(BenchmarkRunner):
 
     def download(self) -> None:
         cache_dir = str(self.data_dir / "multihop")
-        self._dataset = load_dataset("yixuantt/MultiHopRAG", cache_dir=cache_dir)
+        self._qa_dataset = load_dataset("yixuantt/MultiHopRAG", "MultiHopRAG", cache_dir=cache_dir)
+        self._corpus_dataset = load_dataset("yixuantt/MultiHopRAG", "corpus", cache_dir=cache_dir)
         logger.info("Downloaded MultiHopRAG dataset")
 
     def load_data(self) -> None:
-        # Extract corpus from the knowledge base (news articles)
-        if "corpus" in self._dataset:
-            for item in self._dataset["corpus"]:
-                doc_id = item.get("id") or item.get("_id") or str(len(self.corpus))
-                self.corpus[doc_id] = {
-                    "title": item.get("title", ""),
-                    "text": item.get("body", item.get("text", "")),
-                }
-        elif "train" in self._dataset:
-            # Dataset may have articles embedded in the train split
-            seen_titles = set()
-            for item in self._dataset["train"]:
-                for evidence in item.get("evidences", []):
-                    title = evidence.get("title", "")
-                    if title and title not in seen_titles:
-                        seen_titles.add(title)
-                        doc_id = f"doc_{len(self.corpus)}"
-                        self.corpus[doc_id] = {
-                            "title": title,
-                            "text": evidence.get("fact", ""),
-                        }
+        # Extract corpus from the dedicated corpus config
+        corpus_split = list(self._corpus_dataset.keys())[0]
+        for idx, item in enumerate(self._corpus_dataset[corpus_split]):
+            doc_id = f"doc_{idx}"
+            self.corpus[doc_id] = {
+                "title": item.get("title", ""),
+                "text": item.get("body", ""),
+            }
 
-        # Extract queries and ground truths
-        split = "test" if "test" in self._dataset else "train"
-        for idx, item in enumerate(self._dataset[split]):
+        # Extract queries and ground truths from QA config
+        qa_split = "test" if "test" in self._qa_dataset else "train"
+        for idx, item in enumerate(self._qa_dataset[qa_split]):
             qid = str(idx)
             self.queries[qid] = item["query"]
             self.ground_truths[qid] = item["answer"]
 
             # Map evidence docs for retrieval evaluation
             evidence_titles = []
-            for ev in item.get("evidences", []):
+            for ev in item.get("evidence_list", []):
                 evidence_titles.append(ev.get("title", ""))
             self.evidence_docs[qid] = evidence_titles
 
@@ -105,6 +93,8 @@ class MultiHOPBenchmark(BenchmarkRunner):
             mapping=self.mapping,
             max_num_results=20,
             search_mode=self.search_mode,
+            use_batch_api=self.use_batch_api,
+            batch_id=self.batch_id,
         )
 
         # Extract predictions

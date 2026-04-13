@@ -33,6 +33,8 @@ class BenchmarkRunner(ABC):
         search_mode: str | None = None,
         max_queries: int | None = None,
         resume: bool = False,
+        use_batch_api: bool = False,
+        batch_id: str | None = None,
     ):
         self.client = client
         self.base_url = base_url
@@ -42,6 +44,8 @@ class BenchmarkRunner(ABC):
         self.search_mode = search_mode
         self.max_queries = max_queries
         self.resume = resume
+        self.use_batch_api = use_batch_api
+        self.batch_id = batch_id
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)

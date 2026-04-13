@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 OPENAI_URL="https://api.openai.com/v1"
 LLAMA_STACK_URL="${LLAMA_STACK_URL:-http://localhost:8321/v1}"
 MODEL="${MODEL:-gpt-4.1}"

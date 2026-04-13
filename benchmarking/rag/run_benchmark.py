@@ -26,6 +26,12 @@ from lib.utils import setup_logging
 @click.option("--output-dir", default=None, help="Output directory")
 @click.option("--data-dir", default=None, help="Data directory")
 @click.option("--verbose", is_flag=True, default=False)
+@click.option(
+    "--batch-api/--no-batch-api",
+    default=False,
+    help="Use OpenAI Batch API for queries (50% cheaper, higher throughput)",
+)
+@click.option("--batch-id", default=None, help="Resume polling an existing Batch API job by ID")
 def main(
     benchmark: str,
     dataset: str | None,
@@ -38,6 +44,8 @@ def main(
     output_dir: str | None,
     data_dir: str | None,
     verbose: bool,
+    batch_api: bool,
+    batch_id: str | None,
 ):
     setup_logging(verbose)
 
@@ -65,6 +73,8 @@ def main(
         "search_mode": search_mode,
         "max_queries": max_queries,
         "resume": resume,
+        "use_batch_api": batch_api,
+        "batch_id": batch_id,
     }
 
     if benchmark == "beir":
