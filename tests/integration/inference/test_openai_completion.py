@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) The OGX Contributors.
 # All rights reserved.
 #
 # This source code is licensed under the terms described in the LICENSE file in
@@ -6,30 +6,22 @@
 
 
 import time
-import unicodedata
 
 import pytest
 from pydantic import BaseModel
 
+from ..helpers import assert_text_contains
 from ..test_cases.test_case import TestCase
 
 
-def _normalize_text(text: str) -> str:
-    """
-    Normalize Unicode text by removing diacritical marks for comparison.
-
-    The test case streaming_01 expects the answer "Sol" for the question "What's the name of the Sun
-    in latin?", but the model is returning "sōl" (with a macron over the 'o'), which is the correct
-    Latin spelling. The test is failing because it's doing a simple case-insensitive string search
-    for "sol" but the actual response contains the diacritical mark.
-    """
-    return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").lower()
-
-
 def provider_from_model(client_with_models, model_id):
-    models = {m.id: m for m in client_with_models.models.list()}
+    models = {m.id: m for m in client_with_models.models.list().data}
     models.update(
-        {m.custom_metadata["provider_resource_id"]: m for m in client_with_models.models.list() if m.custom_metadata}
+        {
+            m.custom_metadata["provider_resource_id"]: m
+            for m in client_with_models.models.list().data
+            if m.custom_metadata
+        }
     )
     provider_id = models[model_id].custom_metadata["provider_id"]
     providers = {p.provider_id: p for p in client_with_models.providers.list()}
@@ -109,7 +101,6 @@ def skip_if_doesnt_support_n(client_with_models, model_id):
         "remote::vertexai",
         #  Error code: 400 - [{'error': {'code': 400, 'message': 'Unable to submit request because candidateCount must be 1 but
         #  the entered value was 2. Update the candidateCount value and try again.', 'status': 'INVALID_ARGUMENT'}
-        "remote::tgi",  # TGI ignores n param silently
         "remote::together",  # `n` > 1 is not supported when streaming tokens. Please disable `stream`
         # Error code 400 - {'message': '"n" > 1 is not currently supported', 'type': 'invalid_request_error', 'param': 'n', 'code': 'wrong_api_format'}
         "remote::cerebras",
@@ -160,13 +151,13 @@ def skip_if_provider_doesnt_support_tool_calling(client_with_models, model_id):
         "inference:completion:sanity",
     ],
 )
-def test_openai_completion_non_streaming(llama_stack_client, client_with_models, text_model_id, test_case):
+def test_openai_completion_non_streaming(ogx_client, client_with_models, text_model_id, test_case):
     skip_if_model_doesnt_support_openai_completion(client_with_models, text_model_id)
     tc = TestCase(test_case)
 
     # ollama needs more verbose prompting for some reason here...
     prompt = "Respond to this question and explain your answer. " + tc["content"]
-    response = llama_stack_client.completions.create(
+    response = ogx_client.completions.create(
         model=text_model_id,
         prompt=prompt,
         stream=False,
@@ -182,13 +173,13 @@ def test_openai_completion_non_streaming(llama_stack_client, client_with_models,
         "inference:completion:suffix",
     ],
 )
-def test_openai_completion_non_streaming_suffix(llama_stack_client, client_with_models, text_model_id, test_case):
+def test_openai_completion_non_streaming_suffix(ogx_client, client_with_models, text_model_id, test_case):
     skip_if_model_doesnt_support_openai_completion(client_with_models, text_model_id)
     skip_if_model_doesnt_support_suffix(client_with_models, text_model_id)
     tc = TestCase(test_case)
 
     # ollama needs more verbose prompting for some reason here...
-    response = llama_stack_client.completions.create(
+    response = ogx_client.completions.create(
         model=text_model_id,
         prompt=tc["content"],
         stream=False,
@@ -199,8 +190,7 @@ def test_openai_completion_non_streaming_suffix(llama_stack_client, client_with_
     assert len(response.choices) > 0
     choice = response.choices[0]
     assert len(choice.text) > 5
-    normalized_text = _normalize_text(choice.text)
-    assert "france" in normalized_text
+    assert_text_contains(choice.text, "france")
 
 
 @pytest.mark.parametrize(
@@ -209,13 +199,13 @@ def test_openai_completion_non_streaming_suffix(llama_stack_client, client_with_
         "inference:completion:sanity",
     ],
 )
-def test_openai_completion_streaming(llama_stack_client, client_with_models, text_model_id, test_case):
+def test_openai_completion_streaming(ogx_client, client_with_models, text_model_id, test_case):
     skip_if_model_doesnt_support_openai_completion(client_with_models, text_model_id)
     tc = TestCase(test_case)
 
     # ollama needs more verbose prompting for some reason here...
     prompt = "Respond to this question and explain your answer. " + tc["content"]
-    response = llama_stack_client.completions.create(
+    response = ogx_client.completions.create(
         model=text_model_id,
         prompt=prompt,
         stream=True,
@@ -226,11 +216,11 @@ def test_openai_completion_streaming(llama_stack_client, client_with_models, tex
     assert len(content_str) > 10
 
 
-def test_openai_completion_guided_choice(llama_stack_client, client_with_models, text_model_id):
+def test_openai_completion_guided_choice(ogx_client, client_with_models, text_model_id):
     skip_if_provider_isnt_vllm(client_with_models, text_model_id)
 
     prompt = "I am feeling really sad today."
-    response = llama_stack_client.completions.create(
+    response = ogx_client.completions.create(
         model=text_model_id,
         prompt=prompt,
         stream=False,
@@ -241,7 +231,7 @@ def test_openai_completion_guided_choice(llama_stack_client, client_with_models,
     assert choice.text in ["joy", "sadness"]
 
 
-# Run the chat-completion tests with both the OpenAI client and the LlamaStack client
+# Run the chat-completion tests with both the OpenAI client and the OGX client
 
 
 @pytest.mark.parametrize(
@@ -267,11 +257,9 @@ def test_openai_chat_completion_non_streaming(compat_client, client_with_models,
         ],
         stream=False,
     )
-    message_content = response.choices[0].message.content.lower().strip()
+    message_content = response.choices[0].message.content
     assert len(message_content) > 0
-    normalized_expected = _normalize_text(expected)
-    normalized_content = _normalize_text(message_content)
-    assert normalized_expected in normalized_content
+    assert_text_contains(message_content, expected)
 
 
 @pytest.mark.parametrize(
@@ -297,11 +285,9 @@ def test_openai_chat_completion_streaming(compat_client, client_with_models, tex
     for chunk in response:
         # On some providers like Azure, the choices are empty on the first chunk, so we need to check for that
         if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
-            streamed_content.append(chunk.choices[0].delta.content.lower().strip())
+            streamed_content.append(chunk.choices[0].delta.content)
     assert len(streamed_content) > 0
-    normalized_expected = _normalize_text(expected)
-    normalized_content = _normalize_text("".join(streamed_content))
-    assert normalized_expected in normalized_content
+    assert_text_contains("".join(streamed_content), expected)
 
 
 @pytest.mark.parametrize(
@@ -330,16 +316,10 @@ def test_openai_chat_completion_streaming_with_n(compat_client, client_with_mode
     for chunk in response:
         for choice in chunk.choices:
             if choice.delta.content:
-                streamed_content[choice.index] = (
-                    streamed_content.get(choice.index, "") + choice.delta.content.lower().strip()
-                )
+                streamed_content[choice.index] = streamed_content.get(choice.index, "") + choice.delta.content
     assert len(streamed_content) == 2
-    normalized_expected = _normalize_text(expected)
     for i, content in streamed_content.items():
-        normalized_content = _normalize_text(content)
-        assert normalized_expected in normalized_content, (
-            f"Choice {i}: Expected {normalized_expected} in {normalized_content}"
-        )
+        assert_text_contains(content, expected, msg=f"Choice {i}: Expected '{expected}' in '{content}'")
 
 
 @pytest.mark.parametrize(
@@ -396,6 +376,48 @@ def test_inference_store(compat_client, client_with_models, text_model_id, strea
         or retrieved_response.input_messages[0]["content"]
     )
     assert input_content == message, retrieved_response
+    if not hasattr(client.chat.completions, "messages"):
+        return
+
+    first_page = client.chat.completions.messages.list(completion_id=response_id, limit=1)
+    assert first_page.object == "list"
+    assert len(first_page.data) == 1
+    assert first_page.data[0].id == f"{response_id}-0"
+    assert first_page.data[0].role == "user"
+    assert first_page.data[0].content == message
+    assert first_page.first_id == f"{response_id}-0"
+    assert first_page.last_id == f"{response_id}-0"
+    assert first_page.has_more is True
+
+    second_page = client.chat.completions.messages.list(
+        completion_id=response_id,
+        after=first_page.last_id,
+        limit=10,
+    )
+    assert len(second_page.data) == 1
+    assert second_page.data[0].id == f"{response_id}-1"
+    assert second_page.data[0].role == "assistant"
+    assert second_page.has_more is False
+
+    first_page = client.chat.completions.messages.list(completion_id=response_id, limit=1)
+    assert first_page.object == "list"
+    assert len(first_page.data) == 1
+    assert first_page.data[0].id == f"{response_id}-0"
+    assert first_page.data[0].role == "user"
+    assert first_page.data[0].content == message
+    assert first_page.first_id == f"{response_id}-0"
+    assert first_page.last_id == f"{response_id}-0"
+    assert first_page.has_more is True
+
+    second_page = client.chat.completions.messages.list(
+        completion_id=response_id,
+        after=first_page.last_id,
+        limit=10,
+    )
+    assert len(second_page.data) == 1
+    assert second_page.data[0].id == f"{response_id}-1"
+    assert second_page.data[0].role == "assistant"
+    assert second_page.has_more is False
 
 
 @pytest.mark.parametrize(
@@ -515,19 +537,20 @@ def test_openai_chat_completion_non_streaming_with_file(openai_client, client_wi
         ],
         stream=False,
     )
-    message_content = response.choices[0].message.content.lower().strip()
-    normalized_content = _normalize_text(message_content)
-    assert "hello world" in normalized_content
+    assert_text_contains(response.choices[0].message.content, "hello world")
+
+
+_REASONING_MODEL_PATTERNS = ("gpt-oss", "deepseek-r1")
 
 
 def skip_if_model_doesnt_support_reasoning(model_id):
     """Skip if the model is not known to emit reasoning/thinking tokens."""
-    if "gpt-oss" not in model_id.lower():
+    if not any(p in model_id.lower() for p in _REASONING_MODEL_PATTERNS):
         pytest.skip(f"Model {model_id} doesn't emit reasoning tokens; skipping reasoning passthrough test.")
 
 
 def test_openai_chat_completion_reasoning_passthrough(openai_client, client_with_models, text_model_id):
-    """Verify that reasoning tokens survive a round-trip through Llama Stack.
+    """Verify that reasoning tokens survive a round-trip through OGX.
 
     Turn 1: send a prompt, assert that the response carries reasoning content
             in model_extra (transparent passthrough from the provider).
@@ -546,7 +569,7 @@ def test_openai_chat_completion_reasoning_passthrough(openai_client, client_with
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What is 2+2? Think step by step."},
     ]
-    resp1 = openai_client.chat.completions.create(model=text_model_id, messages=messages)
+    resp1 = openai_client.chat.completions.create(model=text_model_id, messages=messages, timeout=120)
     msg1 = resp1.choices[0].message
 
     # Reasoning content arrives as a non-spec field; it lives in model_extra
@@ -562,7 +585,7 @@ def test_openai_chat_completion_reasoning_passthrough(openai_client, client_with
     messages.append(msg1.model_dump())
     messages.append({"role": "user", "content": "Now multiply that result by 3."})
 
-    resp2 = openai_client.chat.completions.create(model=text_model_id, messages=messages)
+    resp2 = openai_client.chat.completions.create(model=text_model_id, messages=messages, timeout=120)
     msg2 = resp2.choices[0].message
 
     assert msg2.content, "Expected a non-empty response in turn 2"

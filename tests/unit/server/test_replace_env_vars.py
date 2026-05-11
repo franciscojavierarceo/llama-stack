@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) The OGX Contributors.
 # All rights reserved.
 #
 # This source code is licensed under the terms described in the LICENSE file in
@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from llama_stack.core.stack import EnvVarError, replace_env_vars
+from ogx.core.stack import EnvVarError, replace_env_vars
 
 
 @pytest.fixture
@@ -104,36 +104,36 @@ def test_explicit_strings_preserved(setup_env_vars):
     assert replace_env_vars(data) == expected
 
 
-def test_resource_with_empty_benchmark_id_skipped(setup_env_vars):
-    """Test that resources with empty benchmark_id from conditional env vars are skipped."""
+def test_resource_with_empty_vector_store_id_skipped(setup_env_vars):
+    """Test that resources with empty vector_store_id from conditional env vars are skipped."""
     data = {
-        "benchmarks": [
-            {"benchmark_id": "${env.BENCHMARK_ID:+my-benchmark}", "dataset_id": "test-dataset"},
-            {"benchmark_id": "always-present", "dataset_id": "another-dataset"},
+        "vector_stores": [
+            {"vector_store_id": "${env.VECTOR_STORE_ID:+my-store}", "provider_id": "test-provider"},
+            {"vector_store_id": "always-present", "provider_id": "another-provider"},
         ]
     }
-    # BENCHMARK_ID is not set, so first benchmark should be skipped
+    # VECTOR_STORE_ID is not set, so first vector store should be skipped
     result = replace_env_vars(data)
-    assert len(result["benchmarks"]) == 1
-    assert result["benchmarks"][0]["benchmark_id"] == "always-present"
+    assert len(result["vector_stores"]) == 1
+    assert result["vector_stores"][0]["vector_store_id"] == "always-present"
 
 
-def test_resource_with_set_benchmark_id_not_skipped(setup_env_vars):
-    """Test that resources with set benchmark_id are not skipped."""
-    os.environ["BENCHMARK_ID"] = "enabled"
+def test_resource_with_set_vector_store_id_not_skipped(setup_env_vars):
+    """Test that resources with set vector_store_id are not skipped."""
+    os.environ["VECTOR_STORE_ID"] = "enabled"
     try:
         data = {
-            "benchmarks": [
-                {"benchmark_id": "${env.BENCHMARK_ID:+my-benchmark}", "dataset_id": "test-dataset"},
-                {"benchmark_id": "always-present", "dataset_id": "another-dataset"},
+            "vector_stores": [
+                {"vector_store_id": "${env.VECTOR_STORE_ID:+my-store}", "provider_id": "test-provider"},
+                {"vector_store_id": "always-present", "provider_id": "another-provider"},
             ]
         }
         result = replace_env_vars(data)
-        assert len(result["benchmarks"]) == 2
-        assert result["benchmarks"][0]["benchmark_id"] == "my-benchmark"
-        assert result["benchmarks"][1]["benchmark_id"] == "always-present"
+        assert len(result["vector_stores"]) == 2
+        assert result["vector_stores"][0]["vector_store_id"] == "my-store"
+        assert result["vector_stores"][1]["vector_store_id"] == "always-present"
     finally:
-        del os.environ["BENCHMARK_ID"]
+        del os.environ["VECTOR_STORE_ID"]
 
 
 def test_resource_with_empty_model_id_skipped(setup_env_vars):
@@ -166,25 +166,25 @@ def test_resource_with_empty_shield_id_skipped(setup_env_vars):
 
 def test_multiple_resources_with_conditional_ids(setup_env_vars):
     """Test that multiple resource types with conditional IDs are handled correctly."""
-    os.environ["INCLUDE_BENCHMARK"] = "yes"
+    os.environ["INCLUDE_SHIELD"] = "yes"
     try:
         data = {
-            "benchmarks": [
-                {"benchmark_id": "${env.INCLUDE_BENCHMARK:+included-benchmark}", "dataset_id": "ds1"},
-                {"benchmark_id": "${env.EXCLUDE_BENCHMARK:+excluded-benchmark}", "dataset_id": "ds2"},
+            "shields": [
+                {"shield_id": "${env.INCLUDE_SHIELD:+included-shield}", "provider_id": "p1"},
+                {"shield_id": "${env.EXCLUDE_SHIELD:+excluded-shield}", "provider_id": "p2"},
             ],
             "models": [
                 {"model_id": "${env.EXCLUDE_MODEL:+excluded-model}", "provider_id": "p1"},
             ],
         }
         result = replace_env_vars(data)
-        # Only the benchmark with INCLUDE_BENCHMARK set should remain
-        assert len(result["benchmarks"]) == 1
-        assert result["benchmarks"][0]["benchmark_id"] == "included-benchmark"
+        # Only the shield with INCLUDE_SHIELD set should remain
+        assert len(result["shields"]) == 1
+        assert result["shields"][0]["shield_id"] == "included-shield"
         # Model with unset env var should be skipped
         assert len(result["models"]) == 0
     finally:
-        del os.environ["INCLUDE_BENCHMARK"]
+        del os.environ["INCLUDE_SHIELD"]
 
 
 def test_auth_provider_disabled_when_type_not_set(setup_env_vars):
@@ -194,7 +194,7 @@ def test_auth_provider_disabled_when_type_not_set(setup_env_vars):
             "auth": {
                 "provider_config": {
                     "type": "${env.AUTH_PROVIDER:+oauth2_token}",
-                    "audience": "llama-stack",
+                    "audience": "ogx",
                     "issuer": "https://auth.example.com",
                 },
                 "route_policy": [],
@@ -217,7 +217,7 @@ def test_auth_provider_enabled_when_type_is_set(setup_env_vars):
                 "auth": {
                     "provider_config": {
                         "type": "${env.AUTH_PROVIDER:+oauth2_token}",
-                        "audience": "llama-stack",
+                        "audience": "ogx",
                         "issuer": "https://auth.example.com",
                     },
                     "route_policy": [],
@@ -228,7 +228,7 @@ def test_auth_provider_enabled_when_type_is_set(setup_env_vars):
         # AUTH_PROVIDER is set, so provider_config should be preserved with resolved type
         assert result["server"]["auth"]["provider_config"] is not None
         assert result["server"]["auth"]["provider_config"]["type"] == "oauth2_token"
-        assert result["server"]["auth"]["provider_config"]["audience"] == "llama-stack"
+        assert result["server"]["auth"]["provider_config"]["audience"] == "ogx"
         assert result["server"]["auth"]["provider_config"]["issuer"] == "https://auth.example.com"
     finally:
         del os.environ["AUTH_PROVIDER"]
@@ -241,7 +241,7 @@ def test_auth_provider_disabled_when_type_is_empty(setup_env_vars):
             "auth": {
                 "provider_config": {
                     "type": "${env.NOT_SET:=}",
-                    "audience": "llama-stack",
+                    "audience": "ogx",
                 },
                 "route_policy": [],
             }
@@ -259,7 +259,7 @@ def test_auth_provider_with_hardcoded_type(setup_env_vars):
             "auth": {
                 "provider_config": {
                     "type": "oauth2_token",
-                    "audience": "llama-stack",
+                    "audience": "ogx",
                     "issuer": "https://auth.example.com",
                 },
                 "route_policy": [],
@@ -270,7 +270,7 @@ def test_auth_provider_with_hardcoded_type(setup_env_vars):
     # Hardcoded type should be preserved as-is
     assert result["server"]["auth"]["provider_config"] is not None
     assert result["server"]["auth"]["provider_config"]["type"] == "oauth2_token"
-    assert result["server"]["auth"]["provider_config"]["audience"] == "llama-stack"
+    assert result["server"]["auth"]["provider_config"]["audience"] == "ogx"
 
 
 def test_auth_provider_with_complex_config(setup_env_vars):
@@ -284,8 +284,8 @@ def test_auth_provider_with_complex_config(setup_env_vars):
                     "provider_config": {
                         "type": "${env.ENABLE_AUTH:+oauth2_token}",
                         "audience": "account",
-                        "issuer": "${env.KEYCLOAK_URL}/realms/llamastack",
-                        "jwks": {"uri": "${env.KEYCLOAK_URL}/realms/llamastack/protocol/openid-connect/certs"},
+                        "issuer": "${env.KEYCLOAK_URL}/realms/ogx",
+                        "jwks": {"uri": "${env.KEYCLOAK_URL}/realms/ogx/protocol/openid-connect/certs"},
                     }
                 }
             }
@@ -293,10 +293,10 @@ def test_auth_provider_with_complex_config(setup_env_vars):
         result = replace_env_vars(data, "")
         assert result["server"]["auth"]["provider_config"] is not None
         assert result["server"]["auth"]["provider_config"]["type"] == "oauth2_token"
-        assert result["server"]["auth"]["provider_config"]["issuer"] == "http://keycloak:8080/realms/llamastack"
+        assert result["server"]["auth"]["provider_config"]["issuer"] == "http://keycloak:8080/realms/ogx"
         assert (
             result["server"]["auth"]["provider_config"]["jwks"]["uri"]
-            == "http://keycloak:8080/realms/llamastack/protocol/openid-connect/certs"
+            == "http://keycloak:8080/realms/ogx/protocol/openid-connect/certs"
         )
     finally:
         del os.environ["ENABLE_AUTH"]

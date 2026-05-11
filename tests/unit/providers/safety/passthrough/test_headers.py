@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) The OGX Contributors.
 # All rights reserved.
 #
 # This source code is licensed under the terms described in the LICENSE file in
@@ -10,8 +10,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from llama_stack.providers.remote.safety.passthrough.config import PassthroughSafetyConfig
-from llama_stack_api import (
+from ogx.providers.remote.safety.passthrough.config import PassthroughSafetyConfig
+from ogx_api import (
     OpenAIUserMessageParam,
     ResourceType,
     RunModerationRequest,
@@ -202,4 +202,30 @@ async def test_forward_headers_rejects_multiple_violations() -> None:
         PassthroughSafetyConfig(
             base_url="https://safety.example.com/v1",
             forward_headers={"__internal": "X-Internal", "host_key": "Host"},
+        )
+
+
+async def test_forward_headers_rejects_operator_blocked_headers() -> None:
+    with pytest.raises(ValidationError, match="blocked"):
+        PassthroughSafetyConfig(
+            base_url="https://safety.example.com/v1",
+            forward_headers={"trace_id": "X-Internal-Debug"},
+            extra_blocked_headers=["x-internal-debug"],
+        )
+
+
+async def test_forward_headers_rejects_operator_blocked_headers_case_insensitive() -> None:
+    with pytest.raises(ValidationError, match="blocked"):
+        PassthroughSafetyConfig(
+            base_url="https://safety.example.com/v1",
+            forward_headers={"trace_id": "X-INTERNAL-DEBUG"},
+            extra_blocked_headers=["x-internal-debug"],
+        )
+
+
+async def test_forward_headers_rejects_empty_extra_blocked_header_names() -> None:
+    with pytest.raises(ValidationError, match="empty header name"):
+        PassthroughSafetyConfig(
+            base_url="https://safety.example.com/v1",
+            extra_blocked_headers=["   "],
         )

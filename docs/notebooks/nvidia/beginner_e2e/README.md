@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This notebook contains the Llama Stack implementation for an end-to-end workflow for running inference, customizing, and evaluating LLMs using the NVIDIA provider. The NVIDIA provider leverages the NeMo Microservices platform, a collection of microservices that you can use to build AI workflows on your Kubernetes cluster on-prem or in cloud.
+This notebook contains the OGX implementation for an end-to-end workflow for running inference, customizing, and evaluating LLMs using the NVIDIA provider. The NVIDIA provider leverages the NeMo Microservices platform, a collection of microservices that you can use to build AI workflows on your Kubernetes cluster on-prem or in cloud.
 
 ### About NVIDIA NeMo Microservices
 
@@ -55,4 +55,5 @@ Ensure you have access to:
 2. Network access to the NeMo Microservices IP and ports.
 
 ## Get Started
+
 Navigate to the [beginner E2E tutorial](./Llama_Stack_NVIDIA_E2E_Flow.ipynb) tutorial to get started.

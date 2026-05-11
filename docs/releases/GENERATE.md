@@ -44,7 +44,7 @@ Changes to default values or response formats where existing code still works bu
 
 Write the detailed release notes to `docs/releases/RELEASE_NOTES_{NEW_VERSION}.md` using this structure:
 
-1. **Title**: `# Llama Stack {NEW_VERSION} Release Notes`
+1. **Title**: `# OGX {NEW_VERSION} Release Notes`
 2. **Release Date**: Use the date from the GitHub release tag, or today if not yet released
 3. **One-paragraph summary** of the release highlights
 4. **Breaking Changes** section with:
@@ -67,7 +67,8 @@ Write the detailed release notes to `docs/releases/RELEASE_NOTES_{NEW_VERSION}.m
     - "After Upgrading" section for deprecations
 
 Formatting rules for the detailed notes:
-- All PR references link to GitHub: `[#NNNN](https://github.com/llamastack/llama-stack/pull/NNNN)`
+
+- All PR references link to GitHub: `[#NNNN](https://github.com/ogx-ai/ogx/pull/NNNN)`
 - For each change, fetch the PR author's full name from GitHub. Include company affiliation in parentheses.
 - Do NOT put author names in the summary overview tables, only in the detailed sections.
 - Use code blocks with language hints for before/after examples.
@@ -98,6 +99,7 @@ See the [full release notes](docs/releases/RELEASE_NOTES_{NEW_VERSION}.md) for m
 ```
 
 Guidelines for the summary:
+
 - Use ISO date format (`YYYY-MM-DD`) from the GitHub release
 - List 5-10 of the most notable features in Highlights (not exhaustive)
 - The Breaking Changes table lists all breaking and deprecated changes with their type (`Hard` or `Deprecated`), but without migration details
