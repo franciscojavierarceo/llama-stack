@@ -86,8 +86,14 @@ from ogx_api.files.models import (
     RetrieveFileRequest,
 )
 from ogx_api.internal.kvstore import KVStore
+from ogx_api.internal.sqlstore import ColumnDefinition, ColumnType
 
 EMBEDDING_DIMENSION = 768
+
+TABLE_VECTOR_STORES = "vector_stores"
+TABLE_VECTOR_STORE_FILES = "vector_store_files"
+TABLE_VECTOR_STORE_FILE_CONTENTS = "vector_store_file_contents"
+TABLE_VECTOR_STORE_FILE_BATCHES = "vector_store_file_batches"
 
 logger = get_logger(name=__name__, category="providers::utils")
 
@@ -137,6 +143,7 @@ class OpenAIVectorStoreMixin(ABC):
         kvstore: KVStore | None = None,
         vector_stores_config: VectorStoresConfig | None = None,
         file_processor_api: FileProcessors | None = None,
+        metadata_store: Any | None = None,
     ):
         if not inference_api:
             raise RuntimeError("Inference API is required for vector store operations")
@@ -146,6 +153,7 @@ class OpenAIVectorStoreMixin(ABC):
         self.openai_file_batches: dict[str, dict[str, Any]] = {}
         self.files_api = files_api
         self.kvstore = kvstore
+        self.metadata_store = metadata_store
         self.vector_stores_config = vector_stores_config or VectorStoresConfig()
         self.file_processor_api = file_processor_api
         self._last_file_batch_cleanup_time = 0
@@ -158,12 +166,58 @@ class OpenAIVectorStoreMixin(ABC):
             self._vector_store_locks[vector_store_id] = asyncio.Lock()
         return self._vector_store_locks[vector_store_id]
 
+    async def _create_metadata_tables(self) -> None:
+        """Create SQL tables for vector store metadata."""
+        assert self.metadata_store is not None
+        await self.metadata_store.create_table(
+            TABLE_VECTOR_STORES,
+            {
+                "id": ColumnDefinition(type=ColumnType.STRING, primary_key=True),
+                "store_data": ColumnType.JSON,
+            },
+        )
+        await self.metadata_store.create_table(
+            TABLE_VECTOR_STORE_FILES,
+            {
+                "id": ColumnDefinition(type=ColumnType.STRING, primary_key=True),
+                "store_id": ColumnType.STRING,
+                "file_id": ColumnType.STRING,
+                "file_data": ColumnType.JSON,
+            },
+        )
+        await self.metadata_store.create_table(
+            TABLE_VECTOR_STORE_FILE_CONTENTS,
+            {
+                "id": ColumnDefinition(type=ColumnType.STRING, primary_key=True),
+                "store_id": ColumnType.STRING,
+                "file_id": ColumnType.STRING,
+                "chunk_index": ColumnType.INTEGER,
+                "chunk_data": ColumnType.JSON,
+            },
+        )
+        await self.metadata_store.create_table(
+            TABLE_VECTOR_STORE_FILE_BATCHES,
+            {
+                "id": ColumnDefinition(type=ColumnType.STRING, primary_key=True),
+                "store_id": ColumnType.STRING,
+                "batch_data": ColumnType.JSON,
+                "expires_at": ColumnType.INTEGER,
+            },
+        )
+
     async def _save_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
         """Save vector store metadata to persistent storage."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
-        await self.kvstore.set(key=key, value=json.dumps(store_info))
-        # update in-memory cache
+        if self.metadata_store:
+            await self.metadata_store.upsert(
+                table=TABLE_VECTOR_STORES,
+                data={"id": store_id, "store_data": store_info},
+                conflict_columns=["id"],
+                update_columns=["store_data"],
+            )
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
+            await self.kvstore.set(key=key, value=json.dumps(store_info))
         self.openai_vector_stores[store_id] = store_info
 
     async def _ensure_openai_metadata_exists(self, vector_store: VectorStore, name: str | None = None) -> None:
@@ -201,31 +255,46 @@ class OpenAIVectorStoreMixin(ABC):
 
     async def _load_openai_vector_stores(self) -> dict[str, dict[str, Any]]:
         """Load all vector store metadata from persistent storage."""
-        assert self.kvstore
-        start_key = OPENAI_VECTOR_STORES_PREFIX
-        end_key = f"{OPENAI_VECTOR_STORES_PREFIX}\xff"
-        stored_data = await self.kvstore.values_in_range(start_key, end_key)
-
-        stores: dict[str, dict[str, Any]] = {}
-        for item in stored_data:
-            info = json.loads(item)
-            stores[info["id"]] = info
-        return stores
+        if self.metadata_store:
+            results = await self.metadata_store.fetch_all(table=TABLE_VECTOR_STORES)
+            stores: dict[str, dict[str, Any]] = {}
+            for row in results.data:
+                info = row["store_data"]
+                stores[info["id"]] = info
+            return stores
+        else:
+            assert self.kvstore
+            start_key = OPENAI_VECTOR_STORES_PREFIX
+            end_key = f"{OPENAI_VECTOR_STORES_PREFIX}\xff"
+            stored_data = await self.kvstore.values_in_range(start_key, end_key)
+            stores = {}
+            for item in stored_data:
+                info = json.loads(item)
+                stores[info["id"]] = info
+            return stores
 
     async def _update_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
         """Update vector store metadata in persistent storage."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
-        await self.kvstore.set(key=key, value=json.dumps(store_info))
-        # update in-memory cache
+        if self.metadata_store:
+            await self.metadata_store.update(
+                table=TABLE_VECTOR_STORES,
+                data={"store_data": store_info},
+                where={"id": store_id},
+            )
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
+            await self.kvstore.set(key=key, value=json.dumps(store_info))
         self.openai_vector_stores[store_id] = store_info
 
     async def _delete_openai_vector_store_from_storage(self, store_id: str) -> None:
         """Delete vector store metadata from persistent storage."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
-        await self.kvstore.delete(key)
-        # remove from in-memory cache
+        if self.metadata_store:
+            await self.metadata_store.delete(table=TABLE_VECTOR_STORES, where={"id": store_id})
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_PREFIX}{store_id}"
+            await self.kvstore.delete(key)
         self.openai_vector_stores.pop(store_id, None)
 
     async def _save_openai_vector_store_file(
@@ -236,100 +305,179 @@ class OpenAIVectorStoreMixin(ABC):
         file_contents: list[dict[str, Any]],
     ) -> None:
         """Save vector store file metadata to persistent storage."""
-        assert self.kvstore
-        meta_key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
-        await self.kvstore.set(key=meta_key, value=json.dumps(file_info))
-        contents_prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
-        for idx, chunk in enumerate(file_contents):
-            await self.kvstore.set(key=f"{contents_prefix}{idx}", value=json.dumps(chunk))
+        if self.metadata_store:
+            await self.metadata_store.upsert(
+                table=TABLE_VECTOR_STORE_FILES,
+                data={"id": f"{store_id}:{file_id}", "store_id": store_id, "file_id": file_id, "file_data": file_info},
+                conflict_columns=["id"],
+                update_columns=["file_data"],
+            )
+            for idx, chunk in enumerate(file_contents):
+                await self.metadata_store.upsert(
+                    table=TABLE_VECTOR_STORE_FILE_CONTENTS,
+                    data={
+                        "id": f"{store_id}:{file_id}:{idx}",
+                        "store_id": store_id,
+                        "file_id": file_id,
+                        "chunk_index": idx,
+                        "chunk_data": chunk,
+                    },
+                    conflict_columns=["id"],
+                    update_columns=["chunk_data"],
+                )
+        else:
+            assert self.kvstore
+            meta_key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
+            await self.kvstore.set(key=meta_key, value=json.dumps(file_info))
+            contents_prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
+            for idx, chunk in enumerate(file_contents):
+                await self.kvstore.set(key=f"{contents_prefix}{idx}", value=json.dumps(chunk))
 
     async def _load_openai_vector_store_file(self, store_id: str, file_id: str) -> dict[str, Any]:
         """Load vector store file metadata from persistent storage."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
-        stored_data = await self.kvstore.get(key)
-        return json.loads(stored_data) if stored_data else {}
+        if self.metadata_store:
+            row = await self.metadata_store.fetch_one(
+                table=TABLE_VECTOR_STORE_FILES,
+                where={"store_id": store_id, "file_id": file_id},
+            )
+            return row["file_data"] if row else {}
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
+            stored_data = await self.kvstore.get(key)
+            return json.loads(stored_data) if stored_data else {}
 
     async def _load_openai_vector_store_file_contents(self, store_id: str, file_id: str) -> list[dict[str, Any]]:
         """Load vector store file contents from persistent storage."""
-        assert self.kvstore
-        prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
-        end_key = f"{prefix}\xff"
-        raw_items = await self.kvstore.values_in_range(prefix, end_key)
-        return [json.loads(item) for item in raw_items]
+        if self.metadata_store:
+            results = await self.metadata_store.fetch_all(
+                table=TABLE_VECTOR_STORE_FILE_CONTENTS,
+                where={"store_id": store_id, "file_id": file_id},
+                order_by=[("chunk_index", "asc")],
+            )
+            return [row["chunk_data"] for row in results.data]
+        else:
+            assert self.kvstore
+            prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
+            end_key = f"{prefix}\xff"
+            raw_items = await self.kvstore.values_in_range(prefix, end_key)
+            return [json.loads(item) for item in raw_items]
 
     async def _update_openai_vector_store_file(self, store_id: str, file_id: str, file_info: dict[str, Any]) -> None:
         """Update vector store file metadata in persistent storage."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
-        await self.kvstore.set(key=key, value=json.dumps(file_info))
+        if self.metadata_store:
+            await self.metadata_store.update(
+                table=TABLE_VECTOR_STORE_FILES,
+                data={"file_data": file_info},
+                where={"store_id": store_id, "file_id": file_id},
+            )
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
+            await self.kvstore.set(key=key, value=json.dumps(file_info))
 
     async def _delete_openai_vector_store_file_from_storage(self, store_id: str, file_id: str) -> None:
         """Delete vector store file metadata from persistent storage."""
-        assert self.kvstore
-
-        meta_key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
-        await self.kvstore.delete(meta_key)
-
-        contents_prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
-        end_key = f"{contents_prefix}\xff"
-        # load all stored chunk values (values_in_range is implemented by all backends)
-        raw_items = await self.kvstore.values_in_range(contents_prefix, end_key)
-        # delete each chunk by its index suffix
-        for idx in range(len(raw_items)):
-            await self.kvstore.delete(f"{contents_prefix}{idx}")
+        if self.metadata_store:
+            await self.metadata_store.delete(
+                table=TABLE_VECTOR_STORE_FILE_CONTENTS, where={"store_id": store_id, "file_id": file_id}
+            )
+            await self.metadata_store.delete(
+                table=TABLE_VECTOR_STORE_FILES, where={"store_id": store_id, "file_id": file_id}
+            )
+        else:
+            assert self.kvstore
+            meta_key = f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:{file_id}"
+            await self.kvstore.delete(meta_key)
+            contents_prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
+            end_key = f"{contents_prefix}\xff"
+            raw_items = await self.kvstore.values_in_range(contents_prefix, end_key)
+            for idx in range(len(raw_items)):
+                await self.kvstore.delete(f"{contents_prefix}{idx}")
 
     async def _save_openai_vector_store_file_batch(self, batch_id: str, batch_info: dict[str, Any]) -> None:
         """Save file batch metadata to persistent storage."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}{batch_id}"
-        await self.kvstore.set(key=key, value=json.dumps(batch_info))
-        # update in-memory cache
+        if self.metadata_store:
+            await self.metadata_store.upsert(
+                table=TABLE_VECTOR_STORE_FILE_BATCHES,
+                data={
+                    "id": batch_id,
+                    "store_id": batch_info.get("vector_store_id", ""),
+                    "batch_data": batch_info,
+                    "expires_at": batch_info.get("expires_at", 0),
+                },
+                conflict_columns=["id"],
+                update_columns=["batch_data", "expires_at"],
+            )
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}{batch_id}"
+            await self.kvstore.set(key=key, value=json.dumps(batch_info))
         self.openai_file_batches[batch_id] = batch_info
 
     async def _load_openai_vector_store_file_batches(self) -> dict[str, dict[str, Any]]:
         """Load all file batch metadata from persistent storage."""
-        assert self.kvstore
-        start_key = OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX
-        end_key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}\xff"
-        stored_data = await self.kvstore.values_in_range(start_key, end_key)
-
-        batches: dict[str, dict[str, Any]] = {}
-        for item in stored_data:
-            info = json.loads(item)
-            batches[info["id"]] = info
-        return batches
+        if self.metadata_store:
+            results = await self.metadata_store.fetch_all(table=TABLE_VECTOR_STORE_FILE_BATCHES)
+            batches: dict[str, dict[str, Any]] = {}
+            for row in results.data:
+                info = row["batch_data"]
+                batches[info["id"]] = info
+            return batches
+        else:
+            assert self.kvstore
+            start_key = OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX
+            end_key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}\xff"
+            stored_data = await self.kvstore.values_in_range(start_key, end_key)
+            batches = {}
+            for item in stored_data:
+                info = json.loads(item)
+                batches[info["id"]] = info
+            return batches
 
     async def _delete_openai_vector_store_file_batch(self, batch_id: str) -> None:
         """Delete file batch metadata from persistent storage and in-memory cache."""
-        assert self.kvstore
-        key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}{batch_id}"
-        await self.kvstore.delete(key)
-        # remove from in-memory cache
+        if self.metadata_store:
+            await self.metadata_store.delete(table=TABLE_VECTOR_STORE_FILE_BATCHES, where={"id": batch_id})
+        else:
+            assert self.kvstore
+            key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}{batch_id}"
+            await self.kvstore.delete(key)
         self.openai_file_batches.pop(batch_id, None)
 
     async def _cleanup_expired_file_batches(self) -> None:
         """Clean up expired file batches from persistent storage."""
-        assert self.kvstore
-        start_key = OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX
-        end_key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}\xff"
-        stored_data = await self.kvstore.values_in_range(start_key, end_key)
-
-        current_time = int(time.time())
-        expired_count = 0
-
-        for item in stored_data:
-            info = json.loads(item)
-            expires_at = info.get("expires_at")
-            if expires_at and current_time > expires_at:
-                logger.info("Cleaning up expired file batch", id=info["id"])
-                await self.kvstore.delete(f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}{info['id']}")
-                # Remove from in-memory cache if present
-                self.openai_file_batches.pop(info["id"], None)
-                expired_count += 1
-
-        if expired_count > 0:
-            logger.info("Cleaned up expired file batches", expired_count=expired_count)
+        if self.metadata_store:
+            results = await self.metadata_store.fetch_all(table=TABLE_VECTOR_STORE_FILE_BATCHES)
+            current_time = int(time.time())
+            expired_count = 0
+            for row in results.data:
+                info = row["batch_data"]
+                expires_at = info.get("expires_at")
+                if expires_at and current_time > expires_at:
+                    logger.info("Cleaning up expired file batch", id=info["id"])
+                    await self.metadata_store.delete(table=TABLE_VECTOR_STORE_FILE_BATCHES, where={"id": info["id"]})
+                    self.openai_file_batches.pop(info["id"], None)
+                    expired_count += 1
+            if expired_count > 0:
+                logger.info("Cleaned up expired file batches", expired_count=expired_count)
+        else:
+            assert self.kvstore
+            start_key = OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX
+            end_key = f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}\xff"
+            stored_data = await self.kvstore.values_in_range(start_key, end_key)
+            current_time = int(time.time())
+            expired_count = 0
+            for item in stored_data:
+                info = json.loads(item)
+                expires_at = info.get("expires_at")
+                if expires_at and current_time > expires_at:
+                    logger.info("Cleaning up expired file batch", id=info["id"])
+                    await self.kvstore.delete(f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}{info['id']}")
+                    self.openai_file_batches.pop(info["id"], None)
+                    expired_count += 1
+            if expired_count > 0:
+                logger.info("Cleaned up expired file batches", expired_count=expired_count)
 
     async def _get_processed_files_in_batch(
         self, vector_store_id: str, file_ids: list[str]
@@ -424,6 +572,8 @@ class OpenAIVectorStoreMixin(ABC):
                 "Files API is not available. File attachment operations on vector stores will fail. "
                 "Ensure a 'files' provider is configured if file operations are needed."
             )
+        if self.metadata_store:
+            await self._create_metadata_tables()
         self.openai_vector_stores = await self._load_openai_vector_stores()
         self.openai_file_batches = await self._load_openai_vector_store_file_batches()
         self._file_batch_tasks = {}

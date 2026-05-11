@@ -992,6 +992,7 @@ def run_config_from_dynamic_config_spec(
                 conversations=SqlStoreReference(backend="sql_default", table_name="openai_conversations"),
                 prompts=SqlStoreReference(backend="sql_default", table_name="prompts"),
                 connectors=SqlStoreReference(backend="sql_default", table_name="connectors"),
+                vector_stores=SqlStoreReference(backend="sql_default", table_name="vector_store_metadata"),
             ),
         ),
     )

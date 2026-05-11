@@ -387,6 +387,7 @@ class ElasticsearchVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStore
         inference_api: Inference,
         files_api: Files | None = None,
         file_processor_api: FileProcessors | None = None,
+        policy: list | None = None,
     ) -> None:
         super().__init__(
             inference_api=inference_api, files_api=files_api, kvstore=None, file_processor_api=file_processor_api
@@ -396,10 +397,18 @@ class ElasticsearchVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStore
         self.cache = {}
         self.vector_store_table = None
         self.metadata_collection_name = "openai_vector_stores_metadata"
+        self._policy = policy or []
 
     async def initialize(self) -> None:
         self.client = AsyncElasticsearch(hosts=self.config.elasticsearch_url, api_key=self.config.elasticsearch_api_key)
         self.kvstore = await kvstore_impl(self.config.persistence)
+
+        if self.config.metadata_store:
+            from ogx.core.storage.sqlstore.authorized_sqlstore import AuthorizedSqlStore
+            from ogx.core.storage.sqlstore.sqlstore import sqlstore_impl
+
+            base_store = sqlstore_impl(self.config.metadata_store)
+            self.metadata_store = AuthorizedSqlStore(base_store, self._policy)
 
         start_key = VECTOR_DBS_PREFIX
         end_key = f"{VECTOR_DBS_PREFIX}\xff"
