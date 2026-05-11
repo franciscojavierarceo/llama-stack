@@ -784,6 +784,17 @@ class Stack:
         internal_impls = {}
         add_internal_implementations(internal_impls, self.run_config, policy)
 
+        # Initialize internal services that own SQL tables before resolving provider
+        # impls. Provider initialize() hooks (e.g. vector_io's KVStore->SQL migration)
+        # may issue SQL queries that lazily create the shared engine; tables not yet
+        # registered in metadata at that point will not be created.
+        if Api.prompts in internal_impls:
+            await internal_impls[Api.prompts].initialize()
+        if Api.conversations in internal_impls:
+            await internal_impls[Api.conversations].initialize()
+        if Api.connectors in internal_impls:
+            await internal_impls[Api.connectors].initialize()
+
         impls = await resolve_impls(
             self.run_config,
             self.provider_registry or get_provider_registry(self.run_config),
@@ -791,13 +802,6 @@ class Stack:
             policy,
             internal_impls,
         )
-
-        if Api.prompts in impls:
-            await impls[Api.prompts].initialize()
-        if Api.conversations in impls:
-            await impls[Api.conversations].initialize()
-        if Api.connectors in impls:
-            await impls[Api.connectors].initialize()
 
         await register_resources(self.run_config, impls)
         await auto_register_tool_groups(self.run_config, impls)
