@@ -12,9 +12,7 @@ from ogx_api import Api
 from .config import QdrantVectorIOConfig
 
 
-async def get_provider_impl(
-    config: QdrantVectorIOConfig, deps: dict[Api, Any], policy: list[AccessRule] | None = None
-):
+async def get_provider_impl(config: QdrantVectorIOConfig, deps: dict[Api, Any], policy: list[AccessRule] | None = None):
     from ogx.providers.remote.vector_io.qdrant.qdrant import QdrantVectorIOAdapter
 
     assert isinstance(config, QdrantVectorIOConfig), f"Unexpected config type: {type(config)}"
