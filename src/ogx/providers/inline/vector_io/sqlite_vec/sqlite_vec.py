@@ -51,8 +51,7 @@ def _get_sqlite_vec() -> Any:
 
 from ogx.core.access_control.datatypes import AccessRule
 from ogx.core.storage.kvstore import kvstore_impl
-from ogx.core.storage.sqlstore.authorized_sqlstore import AuthorizedSqlStore
-from ogx.core.storage.sqlstore.sqlstore import sqlstore_impl
+from ogx.core.storage.sqlstore import authorized_sqlstore
 from ogx.log import get_logger
 from ogx.providers.utils.memory.openai_vector_store_mixin import OpenAIVectorStoreMixin
 from ogx.providers.utils.memory.vector_store import (
@@ -549,8 +548,7 @@ class SQLiteVecVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresPro
         self.kvstore = await kvstore_impl(self.config.persistence)
 
         if self.config.metadata_store:
-            base_store = sqlstore_impl(self.config.metadata_store)
-            self.metadata_store = AuthorizedSqlStore(base_store, self._policy)
+            self.metadata_store = authorized_sqlstore(self.config.metadata_store, self._policy)
 
         start_key = VECTOR_DBS_PREFIX
         end_key = f"{VECTOR_DBS_PREFIX}\xff"

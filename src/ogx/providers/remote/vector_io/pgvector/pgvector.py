@@ -13,7 +13,7 @@ from numpy.typing import NDArray
 from psycopg2 import sql
 from psycopg2.extensions import cursor
 from psycopg2.extras import Json, execute_values
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 
 from ogx.core.storage.kvstore import kvstore_impl
 from ogx.log import get_logger
@@ -136,21 +136,6 @@ def remove_vector_store_metadata(conn: psycopg2.extensions.connection, vector_st
         raise RuntimeError(
             f"Error removing metadata from PGVector metadata_store for vector_store: {vector_store_id}"
         ) from e
-
-
-def load_models(cur, cls):
-    """Load and deserialize all models from the metadata_store table.
-
-    Args:
-        cur: database cursor
-        cls: Pydantic model class to deserialize into
-
-    Returns:
-        List of validated model instances
-    """
-    cur.execute("SELECT key, data FROM metadata_store")
-    rows = cur.fetchall()
-    return [TypeAdapter(cls).validate_python(row["data"]) for row in rows]
 
 
 class PGVectorIndex(EmbeddingIndex):
@@ -805,11 +790,9 @@ class PGVectorVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresProt
         self.kvstore = await kvstore_impl(self.config.persistence)
 
         if self.config.metadata_store:
-            from ogx.core.storage.sqlstore.authorized_sqlstore import AuthorizedSqlStore
-            from ogx.core.storage.sqlstore.sqlstore import sqlstore_impl
+            from ogx.core.storage.sqlstore import authorized_sqlstore
 
-            base_store = sqlstore_impl(self.config.metadata_store)
-            self.metadata_store = AuthorizedSqlStore(base_store, self._policy)
+            self.metadata_store = authorized_sqlstore(self.config.metadata_store, self._policy)
 
         await self.initialize_openai_vector_stores()
 

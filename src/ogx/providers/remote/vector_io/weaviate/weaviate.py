@@ -338,11 +338,9 @@ class WeaviateVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresProt
             log.info("No kvstore configured, registry will not persist across restarts")
 
         if self.config.metadata_store:
-            from ogx.core.storage.sqlstore.authorized_sqlstore import AuthorizedSqlStore
-            from ogx.core.storage.sqlstore.sqlstore import sqlstore_impl
+            from ogx.core.storage.sqlstore import authorized_sqlstore
 
-            base_store = sqlstore_impl(self.config.metadata_store)
-            self.metadata_store = AuthorizedSqlStore(base_store, self._policy)
+            self.metadata_store = authorized_sqlstore(self.config.metadata_store, self._policy)
 
         # Load existing vector DB definitions
         if self.kvstore is not None:

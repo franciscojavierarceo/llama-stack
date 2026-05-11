@@ -33,10 +33,20 @@ echo ""
 echo "✓ Conversations isolation tests completed successfully!"
 
 echo ""
+echo "Running prompts isolation tests..."
+
+uv run pytest tests/integration/responses/test_prompts_access_control.py \
+    -k "TestPromptsAccessControl" \
+    --stack-config="$OGX_SERVER_URL" \
+    -v -s \
+    --color=yes || exit 1
+
+echo ""
+echo "✓ Prompts isolation tests completed successfully!"
+
+echo ""
 echo "Running vector stores isolation tests..."
 
-# Run vector stores access control tests using pytest
-# These tests verify that users cannot access each other's vector stores
 uv run pytest tests/integration/vector_io/test_vector_stores_access_control.py \
     -k "TestVectorStoresAccessControl" \
     --stack-config="$OGX_SERVER_URL" \
