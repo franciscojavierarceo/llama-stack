@@ -52,11 +52,14 @@ class VectorStoresClient:
             "Content-Type": "application/json",
         }
 
-    def create(self, name: str) -> dict:
+    def create(self, name: str, embedding_model: str | None = None) -> dict:
+        body: dict = {"name": name}
+        if embedding_model:
+            body["embedding_model"] = embedding_model
         resp = httpx.post(
             f"{self.base_url}/v1/vector_stores",
             headers=self._headers(),
-            json={"name": name},
+            json=body,
             timeout=30.0,
         )
         resp.raise_for_status()
@@ -113,8 +116,10 @@ class TestVectorStoresAccessControl:
         token = get_auth_token("BOB_TOKEN", "token-bob")
         return VectorStoresClient(str(ogx_client.base_url), token)
 
+    EMBEDDING_MODEL = "sentence-transformers/nomic-ai/nomic-embed-text-v1.5"
+
     def _create_store(self, client: VectorStoresClient, name: str = "test-store") -> str:
-        data = client.create(name)
+        data = client.create(name, embedding_model=self.EMBEDDING_MODEL)
         return data["id"]
 
     def test_user_cannot_retrieve_other_users_vector_store(self, alice, bob, require_server):

@@ -121,6 +121,10 @@ jobs:
                 provider_type: remote::openai
                 config:
                   api_key: \${env.OPENAI_API_KEY}
+              - provider_id: sentence-transformers
+                provider_type: inline::sentence-transformers
+                config:
+                  trust_remote_code: true
             vector_io:
               - provider_id: faiss
                 provider_type: inline::faiss
@@ -128,9 +132,6 @@ jobs:
                   persistence:
                     namespace: vector_io::faiss
                     backend: kv_default
-                  metadata_store:
-                    table_name: vector_store_metadata
-                    backend: sql_default
             tool_runtime:
               - provider_id: file-search
                 provider_type: inline::file-search
@@ -140,9 +141,6 @@ jobs:
                 provider_type: inline::builtin
                 config:
                   persistence:
-                    agent_state:
-                      namespace: responses
-                      backend: kv_default
                     responses:
                       table_name: responses
                       backend: sql_default
@@ -169,13 +167,13 @@ jobs:
               prompts:
                 table_name: prompts
                 backend: sql_default
-              vector_stores:
-                table_name: vector_store_metadata
-                backend: sql_default
           models:
           - model_id: openai/gpt-4o
             model_type: llm
             provider_id: openai
+          - model_id: sentence-transformers/nomic-ai/nomic-embed-text-v1.5
+            model_type: embedding
+            provider_id: sentence-transformers
           server:
             port: 8321
             auth:
@@ -184,6 +182,16 @@ jobs:
                     actions: [read]
                     resource: model::*
                   description: Any authenticated user can use configured models (inference, responses)
+                - permit:
+                    actions: [create]
+                    resource: vector_store::*
+                  description: Any authenticated user can create vector stores (routing table)
+                - permit:
+                    actions: [read, update, delete]
+                    resource: vector_store::*
+                  when:
+                    - user is owner
+                  description: Users can access their own vector stores (routing table)
                 - permit:
                     actions: [create]
                     resource: sql_record::openai_files::*
