@@ -13,6 +13,7 @@ from ogx.providers.utils.memory.openai_vector_store_mixin import (
     OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX,
     OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX,
     OPENAI_VECTOR_STORES_FILES_PREFIX,
+    OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY,
     OPENAI_VECTOR_STORES_PREFIX,
     OpenAIVectorStoreMixin,
 )
@@ -143,7 +144,11 @@ class TestKVStoreToSQLMigration:
     def _make_kvstore(self, data: dict[str, str]) -> AsyncMock:
         """Build a mock KVStore populated with the given key-value pairs."""
         kv = AsyncMock()
-        kv.set = AsyncMock()
+
+        async def _set(key: str, value: str, expiration=None) -> None:
+            data[key] = value
+
+        kv.set = AsyncMock(side_effect=_set)
         kv.get = AsyncMock(side_effect=lambda key: data.get(key))
 
         def _values_in_range(start: str, end: str) -> list[str]:
@@ -162,7 +167,7 @@ class TestKVStoreToSQLMigration:
         fetch_result = MagicMock()
         fetch_result.data = existing_rows or []
         sql.fetch_all = AsyncMock(return_value=fetch_result)
-        sql.insert = AsyncMock()
+        sql.upsert = AsyncMock()
         return sql
 
     def _make_metadata_store(self, sql_store: AsyncMock) -> MagicMock:
@@ -191,7 +196,7 @@ class TestKVStoreToSQLMigration:
 
         await mixin._migrate_kvstore_to_sql()
 
-        sql_store.insert.assert_any_call(
+        sql_store.upsert.assert_any_call(
             table="vector_stores",
             data={
                 "id": "vs_abc",
@@ -199,11 +204,18 @@ class TestKVStoreToSQLMigration:
                 "owner_principal": "",
                 "access_attributes": None,
             },
+            conflict_columns=["id"],
+            update_columns=["store_data"],
         )
 
-    async def test_migration_skipped_when_sql_tables_have_data(self):
-        kvstore = self._make_kvstore({f"{OPENAI_VECTOR_STORES_PREFIX}vs_abc": json.dumps({"id": "vs_abc"})})
-        sql_store = self._make_sql_store(existing_rows=[{"id": "vs_existing"}])
+    async def test_migration_skipped_when_migration_marker_exists(self):
+        kvstore = self._make_kvstore(
+            {
+                f"{OPENAI_VECTOR_STORES_PREFIX}vs_abc": json.dumps({"id": "vs_abc"}),
+                OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY: "1",
+            }
+        )
+        sql_store = self._make_sql_store()
         metadata_store = self._make_metadata_store(sql_store)
 
         mixin = MockVectorStoreMixin(
@@ -216,7 +228,7 @@ class TestKVStoreToSQLMigration:
 
         await mixin._migrate_kvstore_to_sql()
 
-        sql_store.insert.assert_not_called()
+        sql_store.upsert.assert_not_called()
 
     async def test_migration_skipped_when_kvstore_is_empty(self):
         kvstore = self._make_kvstore({})
@@ -233,7 +245,8 @@ class TestKVStoreToSQLMigration:
 
         await mixin._migrate_kvstore_to_sql()
 
-        sql_store.insert.assert_not_called()
+        sql_store.upsert.assert_not_called()
+        kvstore.set.assert_any_call(key=OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY, value="1")
 
     async def test_migration_copies_files_and_chunks(self):
         store_info = {"id": "vs_1", "name": "s", "status": "completed"}
@@ -262,9 +275,9 @@ class TestKVStoreToSQLMigration:
 
         await mixin._migrate_kvstore_to_sql()
 
-        assert sql_store.insert.call_count == 4  # 1 store + 1 file + 2 chunks
+        assert sql_store.upsert.call_count == 4  # 1 store + 1 file + 2 chunks
 
-        sql_store.insert.assert_any_call(
+        sql_store.upsert.assert_any_call(
             table="vector_store_files",
             data={
                 "id": "vs_1:file_a",
@@ -274,6 +287,8 @@ class TestKVStoreToSQLMigration:
                 "owner_principal": "",
                 "access_attributes": None,
             },
+            conflict_columns=["id"],
+            update_columns=["store_id", "file_id", "file_data"],
         )
 
     async def test_migration_copies_batches(self):
@@ -299,7 +314,7 @@ class TestKVStoreToSQLMigration:
 
         await mixin._migrate_kvstore_to_sql()
 
-        sql_store.insert.assert_any_call(
+        sql_store.upsert.assert_any_call(
             table="vector_store_file_batches",
             data={
                 "id": "batch_1",
@@ -309,4 +324,6 @@ class TestKVStoreToSQLMigration:
                 "owner_principal": "",
                 "access_attributes": None,
             },
+            conflict_columns=["id"],
+            update_columns=["store_id", "batch_data", "expires_at"],
         )

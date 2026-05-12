@@ -366,7 +366,7 @@ class QdrantVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresProtoc
                 vector_store, QdrantIndex(self.client, vector_store.identifier), self.inference_api
             )
             self.cache[vector_store.identifier] = index
-        self.openai_vector_stores = await self._load_openai_vector_stores()
+        await self.initialize_openai_vector_stores()
 
     async def shutdown(self) -> None:
         await self.client.close()

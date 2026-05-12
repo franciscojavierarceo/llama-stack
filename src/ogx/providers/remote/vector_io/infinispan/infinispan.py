@@ -612,7 +612,7 @@ class InfinispanVectorIOAdapter(OpenAIVectorStoreMixin, VectorIO, VectorStoresPr
         await self._load_vector_stores_from_kvstore()
 
         # Initialize OpenAI vector stores
-        self.openai_vector_stores = await self._load_openai_vector_stores()
+        await self.initialize_openai_vector_stores()
 
     async def _load_vector_stores_from_kvstore(self) -> None:
         """
