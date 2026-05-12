@@ -13,7 +13,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import Body, HTTPException
 
@@ -105,6 +105,7 @@ OPENAI_VECTOR_STORES_PREFIX = f"openai_vector_stores:{VERSION}::"
 OPENAI_VECTOR_STORES_FILES_PREFIX = f"openai_vector_stores_files:{VERSION}::"
 OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX = f"openai_vector_stores_files_contents:{VERSION}::"
 OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX = f"openai_vector_stores_file_batches:{VERSION}::"
+OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY = f"openai_vector_stores_sql_migration:{VERSION}"
 
 
 _RETRIABLE_STATUS_CODES = {429, 502, 503, 504}
@@ -205,13 +206,28 @@ class OpenAIVectorStoreMixin(ABC):
             },
         )
 
+    async def _fetch_all_metadata_rows_unfiltered(self, table: str, **kwargs: Any) -> list[dict[str, Any]]:
+        """Fetch rows from metadata tables without request-scoped ACL filtering.
+
+        Startup and migration paths run without an authenticated request user, so
+        AuthorizedSqlStore filtering would hide tenant-owned rows. For internal
+        provider bookkeeping we need the full table contents.
+        """
+        assert self.metadata_store is not None
+        results = await self.metadata_store.sql_store.fetch_all(table=table, **kwargs)
+        return cast(list[dict[str, Any]], results.data)
+
+    async def _fetch_one_metadata_row_unfiltered(self, table: str, **kwargs: Any) -> dict[str, Any] | None:
+        rows = await self._fetch_all_metadata_rows_unfiltered(table=table, limit=1, **kwargs)
+        return rows[0] if rows else None
+
     async def _migrate_kvstore_to_sql(self) -> None:
         """Migrate vector store metadata from KVStore to SQL on first run after upgrade.
 
         When a deployment upgrades from KVStore-only storage to SQL-backed metadata_store,
-        this method copies all existing vector store data into the new SQL tables. It runs
-        once during initialization when both backends are configured and the SQL tables are
-        empty.
+        this method copies all existing vector store data into the new SQL tables. Migration
+        completion is tracked with a KV marker key, and row-level upserts make retries safe
+        after crashes or restarts.
 
         Migrated records are inserted with owner_principal="" and access_attributes=None
         (the "unowned" marker), making them accessible to all authenticated users. This is
@@ -223,12 +239,17 @@ class OpenAIVectorStoreMixin(ABC):
         assert self.metadata_store is not None
         assert self.kvstore is not None
 
+        migration_complete = await self.kvstore.get(OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY)
+        if migration_complete == "1":
+            return
+
         sql_store = self.metadata_store.sql_store
 
         stores_data = await self.kvstore.values_in_range(
             OPENAI_VECTOR_STORES_PREFIX, f"{OPENAI_VECTOR_STORES_PREFIX}\xff"
         )
         if not stores_data:
+            await self.kvstore.set(key=OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY, value="1")
             return
 
         migrated_stores = 0
@@ -236,95 +257,93 @@ class OpenAIVectorStoreMixin(ABC):
         migrated_chunks = 0
         migrated_batches = 0
 
-        # Per-table migration: each table is checked independently so a crash
-        # mid-migration doesn't skip remaining tables on the next boot.
-        existing_stores = await sql_store.fetch_all(table=TABLE_VECTOR_STORES, limit=1)
-        if not existing_stores.data:
-            logger.info(
-                "Starting KVStore to SQL migration for vector store metadata",
-                store_count=len(stores_data),
+        logger.info(
+            "Starting KVStore to SQL migration for vector store metadata",
+            store_count=len(stores_data),
+        )
+
+        for raw in stores_data:
+            info = json.loads(raw)
+            store_id = info["id"]
+            await sql_store.upsert(
+                table=TABLE_VECTOR_STORES,
+                data={
+                    "id": store_id,
+                    "store_data": info,
+                    "owner_principal": "",
+                    "access_attributes": None,
+                },
+                conflict_columns=["id"],
+                update_columns=["store_data"],
             )
-            for raw in stores_data:
-                info = json.loads(raw)
-                store_id = info["id"]
-                await sql_store.insert(
-                    table=TABLE_VECTOR_STORES,
+            migrated_stores += 1
+
+            file_keys = await self.kvstore.keys_in_range(
+                f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:",
+                f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:\xff",
+            )
+            for file_key in file_keys:
+                suffix = file_key[len(OPENAI_VECTOR_STORES_FILES_PREFIX) :]
+                file_id = suffix.split(":", 1)[1] if ":" in suffix else suffix
+                raw_file = await self.kvstore.get(file_key)
+                if not raw_file:
+                    continue
+                file_info = json.loads(raw_file)
+                await sql_store.upsert(
+                    table=TABLE_VECTOR_STORE_FILES,
                     data={
-                        "id": store_id,
-                        "store_data": info,
+                        "id": f"{store_id}:{file_id}",
+                        "store_id": store_id,
+                        "file_id": file_id,
+                        "file_data": file_info,
                         "owner_principal": "",
                         "access_attributes": None,
                     },
+                    conflict_columns=["id"],
+                    update_columns=["store_id", "file_id", "file_data"],
                 )
-                migrated_stores += 1
+                migrated_files += 1
 
-        existing_files = await sql_store.fetch_all(table=TABLE_VECTOR_STORE_FILES, limit=1)
-        if not existing_files.data:
-            for raw in stores_data:
-                info = json.loads(raw)
-                store_id = info["id"]
-                file_keys = await self.kvstore.keys_in_range(
-                    f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:",
-                    f"{OPENAI_VECTOR_STORES_FILES_PREFIX}{store_id}:\xff",
-                )
-                for file_key in file_keys:
-                    suffix = file_key[len(OPENAI_VECTOR_STORES_FILES_PREFIX) :]
-                    file_id = suffix.split(":", 1)[1] if ":" in suffix else suffix
-                    raw_file = await self.kvstore.get(file_key)
-                    if not raw_file:
-                        continue
-                    file_info = json.loads(raw_file)
-                    await sql_store.insert(
-                        table=TABLE_VECTOR_STORE_FILES,
+                chunk_prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
+                chunk_values = await self.kvstore.values_in_range(chunk_prefix, f"{chunk_prefix}\xff")
+                for idx, raw_chunk in enumerate(chunk_values):
+                    chunk = json.loads(raw_chunk)
+                    await sql_store.upsert(
+                        table=TABLE_VECTOR_STORE_FILE_CONTENTS,
                         data={
-                            "id": f"{store_id}:{file_id}",
+                            "id": f"{store_id}:{file_id}:{idx}",
                             "store_id": store_id,
                             "file_id": file_id,
-                            "file_data": file_info,
+                            "chunk_index": idx,
+                            "chunk_data": chunk,
                             "owner_principal": "",
                             "access_attributes": None,
                         },
+                        conflict_columns=["id"],
+                        update_columns=["store_id", "file_id", "chunk_index", "chunk_data"],
                     )
-                    migrated_files += 1
+                    migrated_chunks += 1
 
-                    chunk_prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
-                    chunk_values = await self.kvstore.values_in_range(chunk_prefix, f"{chunk_prefix}\xff")
-                    for idx, raw_chunk in enumerate(chunk_values):
-                        chunk = json.loads(raw_chunk)
-                        await sql_store.insert(
-                            table=TABLE_VECTOR_STORE_FILE_CONTENTS,
-                            data={
-                                "id": f"{store_id}:{file_id}:{idx}",
-                                "store_id": store_id,
-                                "file_id": file_id,
-                                "chunk_index": idx,
-                                "chunk_data": chunk,
-                                "owner_principal": "",
-                                "access_attributes": None,
-                            },
-                        )
-                        migrated_chunks += 1
-
-        existing_batches = await sql_store.fetch_all(table=TABLE_VECTOR_STORE_FILE_BATCHES, limit=1)
-        if not existing_batches.data:
-            batch_data = await self.kvstore.values_in_range(
-                OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX, f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}\xff"
+        batch_data = await self.kvstore.values_in_range(
+            OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX, f"{OPENAI_VECTOR_STORES_FILE_BATCHES_PREFIX}\xff"
+        )
+        for raw_batch in batch_data:
+            batch_info = json.loads(raw_batch)
+            batch_id = batch_info["id"]
+            await sql_store.upsert(
+                table=TABLE_VECTOR_STORE_FILE_BATCHES,
+                data={
+                    "id": batch_id,
+                    "store_id": batch_info.get("vector_store_id", ""),
+                    "batch_data": batch_info,
+                    "expires_at": batch_info.get("expires_at", 0),
+                    "owner_principal": "",
+                    "access_attributes": None,
+                },
+                conflict_columns=["id"],
+                update_columns=["store_id", "batch_data", "expires_at"],
             )
-            for raw_batch in batch_data:
-                batch_info = json.loads(raw_batch)
-                batch_id = batch_info["id"]
-                await sql_store.insert(
-                    table=TABLE_VECTOR_STORE_FILE_BATCHES,
-                    data={
-                        "id": batch_id,
-                        "store_id": batch_info.get("vector_store_id", ""),
-                        "batch_data": batch_info,
-                        "expires_at": batch_info.get("expires_at", 0),
-                        "owner_principal": "",
-                        "access_attributes": None,
-                    },
-                )
-                migrated_batches += 1
+            migrated_batches += 1
 
         if migrated_stores or migrated_files or migrated_chunks or migrated_batches:
             logger.info(
@@ -334,6 +353,8 @@ class OpenAIVectorStoreMixin(ABC):
                 chunks=migrated_chunks,
                 batches=migrated_batches,
             )
+
+        await self.kvstore.set(key=OPENAI_VECTOR_STORES_SQL_MIGRATION_KEY, value="1")
 
     async def _save_openai_vector_store(self, store_id: str, store_info: dict[str, Any]) -> None:
         """Save vector store metadata to persistent storage."""
@@ -386,9 +407,9 @@ class OpenAIVectorStoreMixin(ABC):
     async def _load_openai_vector_stores(self) -> dict[str, dict[str, Any]]:
         """Load all vector store metadata from persistent storage."""
         if self.metadata_store:
-            results = await self.metadata_store.fetch_all(table=TABLE_VECTOR_STORES)
             stores: dict[str, dict[str, Any]] = {}
-            for row in results.data:
+            rows = await self._fetch_all_metadata_rows_unfiltered(table=TABLE_VECTOR_STORES)
+            for row in rows:
                 info = row["store_data"]
                 stores[info["id"]] = info
             return stores
@@ -466,7 +487,7 @@ class OpenAIVectorStoreMixin(ABC):
     async def _load_openai_vector_store_file(self, store_id: str, file_id: str) -> dict[str, Any]:
         """Load vector store file metadata from persistent storage."""
         if self.metadata_store:
-            row = await self.metadata_store.fetch_one(
+            row = await self._fetch_one_metadata_row_unfiltered(
                 table=TABLE_VECTOR_STORE_FILES,
                 where={"store_id": store_id, "file_id": file_id},
             )
@@ -480,12 +501,12 @@ class OpenAIVectorStoreMixin(ABC):
     async def _load_openai_vector_store_file_contents(self, store_id: str, file_id: str) -> list[dict[str, Any]]:
         """Load vector store file contents from persistent storage."""
         if self.metadata_store:
-            results = await self.metadata_store.fetch_all(
+            rows = await self._fetch_all_metadata_rows_unfiltered(
                 table=TABLE_VECTOR_STORE_FILE_CONTENTS,
                 where={"store_id": store_id, "file_id": file_id},
                 order_by=[("chunk_index", "asc")],
             )
-            return [row["chunk_data"] for row in results.data]
+            return [row["chunk_data"] for row in rows]
         else:
             assert self.kvstore
             prefix = f"{OPENAI_VECTOR_STORES_FILES_CONTENTS_PREFIX}{store_id}:{file_id}:"
@@ -548,9 +569,9 @@ class OpenAIVectorStoreMixin(ABC):
     async def _load_openai_vector_store_file_batches(self) -> dict[str, dict[str, Any]]:
         """Load all file batch metadata from persistent storage."""
         if self.metadata_store:
-            results = await self.metadata_store.fetch_all(table=TABLE_VECTOR_STORE_FILE_BATCHES)
             batches: dict[str, dict[str, Any]] = {}
-            for row in results.data:
+            rows = await self._fetch_all_metadata_rows_unfiltered(table=TABLE_VECTOR_STORE_FILE_BATCHES)
+            for row in rows:
                 info = row["batch_data"]
                 batches[info["id"]] = info
             return batches
