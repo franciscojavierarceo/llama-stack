@@ -13,7 +13,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import Body, HTTPException
 
@@ -215,7 +215,7 @@ class OpenAIVectorStoreMixin(ABC):
         """
         assert self.metadata_store is not None
         results = await self.metadata_store.sql_store.fetch_all(table=table, **kwargs)
-        return results.data
+        return cast(list[dict[str, Any]], results.data)
 
     async def _fetch_one_metadata_row_unfiltered(self, table: str, **kwargs: Any) -> dict[str, Any] | None:
         rows = await self._fetch_all_metadata_rows_unfiltered(table=table, limit=1, **kwargs)
