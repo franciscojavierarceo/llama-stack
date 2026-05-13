@@ -5,8 +5,15 @@
 # the root directory of this source tree.
 
 import pytest
+from pydantic import ValidationError
 
 from ogx.providers.inline.responses.builtin.config import CompactionConfig
+from ogx.providers.inline.responses.builtin.responses.openai_responses import OpenAIResponsesImpl
+from ogx_api.common.errors import InvalidParameterError
+from ogx_api.openai_responses import (
+    OpenAIResponseCompaction,
+    OpenAIResponseMessage,
+)
 
 
 class TestCompactionConfigDefaults:
@@ -20,9 +27,17 @@ class TestCompactionConfigDefaults:
         assert config.model_tokenizer_mappings == {"mymodel": "o200k_base"}
         assert "llama" not in config.model_tokenizer_mappings
 
+    def test_valid_tokenizer_encoding_accepted(self):
+        config = CompactionConfig(tokenizer_encoding="cl100k_base")
+        assert config.tokenizer_encoding == "cl100k_base"
 
-from ogx.providers.inline.responses.builtin.responses.openai_responses import OpenAIResponsesImpl
-from ogx_api.common.errors import InvalidParameterError
+    def test_invalid_tokenizer_encoding_rejected_at_config(self):
+        with pytest.raises(ValidationError, match="tokenizer_encoding"):
+            CompactionConfig(tokenizer_encoding="not_a_real_encoding")
+
+    def test_invalid_model_tokenizer_mapping_rejected_at_config(self):
+        with pytest.raises(ValidationError, match="model_tokenizer_mappings"):
+            CompactionConfig(model_tokenizer_mappings={"mymodel": "not_a_real_encoding"})
 
 
 class TestResolveEncoding:
@@ -57,11 +72,6 @@ class TestResolveEncoding:
         assert encoding is not None
         assert encoding.name == "o200k_base"
 
-    def test_step2_admin_invalid_raises(self):
-        impl = self._make_impl(tokenizer_encoding="not_a_real_encoding")
-        with pytest.raises(InvalidParameterError, match="compaction_config.tokenizer_encoding"):
-            impl._resolve_encoding("some-model")
-
     def test_step3_tiktoken_builtin_openai_model(self):
         impl = self._make_impl()
         encoding = impl._resolve_encoding("gpt-4o")
@@ -94,3 +104,121 @@ class TestResolveEncoding:
         impl = self._make_impl(model_tokenizer_mappings={})
         encoding = impl._resolve_encoding("totally-unknown-model-xyz")
         assert encoding is None
+
+
+class TestExtractTextSegments:
+    """Tests for _extract_text_segments() — shared helper for text extraction."""
+
+    def test_extracts_message_content(self):
+        items = [OpenAIResponseMessage(role="user", content="hello world")]
+        segments = OpenAIResponsesImpl._extract_text_segments(items)
+        assert segments == ["hello world"]
+
+    def test_extracts_compaction_content(self):
+        items = [OpenAIResponseCompaction(type="compaction", encrypted_content="summary")]
+        segments = OpenAIResponsesImpl._extract_text_segments(items)
+        assert segments == ["summary"]
+
+    def test_extracts_mixed_items(self):
+        items = [
+            OpenAIResponseMessage(role="user", content="hello"),
+            OpenAIResponseCompaction(type="compaction", encrypted_content="summary"),
+        ]
+        segments = OpenAIResponsesImpl._extract_text_segments(items)
+        assert segments == ["hello", "summary"]
+
+    def test_empty_list_returns_empty(self):
+        assert OpenAIResponsesImpl._extract_text_segments([]) == []
+
+
+class TestCountTokens:
+    """Tests for _count_tokens() — encoding-based and character-based paths."""
+
+    def _make_impl(self, **config_kwargs) -> OpenAIResponsesImpl:
+        config = CompactionConfig(**config_kwargs)
+        impl = object.__new__(OpenAIResponsesImpl)
+        impl.compaction_config = config
+        return impl
+
+    def test_string_input_with_encoding(self):
+        impl = self._make_impl(tokenizer_encoding="cl100k_base")
+        count = impl._count_tokens("hello world", model="test")
+        assert count > 0
+        assert isinstance(count, int)
+
+    def test_string_input_character_fallback(self):
+        impl = self._make_impl(model_tokenizer_mappings={})
+        count = impl._count_tokens("hello world test string", model="unknown-model-xyz")
+        assert count == len("hello world test string") // 4
+
+    def test_message_list_character_fallback(self):
+        impl = self._make_impl(model_tokenizer_mappings={})
+        messages = [
+            OpenAIResponseMessage(role="user", content="hello world"),
+        ]
+        count = impl._count_tokens(messages, model="unknown-model-xyz")
+        assert count == len("hello world") // 4
+
+    def test_compaction_item_character_fallback(self):
+        impl = self._make_impl(model_tokenizer_mappings={})
+        items = [
+            OpenAIResponseCompaction(type="compaction", encrypted_content="summary text here"),
+        ]
+        count = impl._count_tokens(items, model="unknown-model-xyz")
+        assert count == len("summary text here") // 4
+
+    def test_count_tokens_with_extra_body_override(self):
+        impl = self._make_impl()
+        count = impl._count_tokens(
+            "hello world",
+            model="unknown-model",
+            extra_body={"tokenizer_encoding": "cl100k_base"},
+        )
+        assert count > 0
+
+    def test_count_tokens_invalid_extra_body_raises(self):
+        impl = self._make_impl()
+        with pytest.raises(InvalidParameterError):
+            impl._count_tokens(
+                "hello",
+                model="test",
+                extra_body={"tokenizer_encoding": "bogus"},
+            )
+
+    def test_ollama_model_uses_family_mapping(self):
+        impl = self._make_impl()
+        count = impl._count_tokens("hello world", model="ollama/llama3.2:3b-instruct-fp16")
+        assert count > 0
+
+
+class TestMaybeAutoCompactExtraBody:
+    """Verify that _maybe_auto_compact passes extra_body to _count_tokens."""
+
+    def _make_impl(self, **config_kwargs) -> OpenAIResponsesImpl:
+        config = CompactionConfig(**config_kwargs)
+        impl = object.__new__(OpenAIResponsesImpl)
+        impl.compaction_config = config
+        return impl
+
+    async def test_extra_body_invalid_encoding_raises_through_auto_compact(self):
+        impl = self._make_impl(model_tokenizer_mappings={})
+        context_management = [{"type": "compaction", "compact_threshold": 10}]
+        with pytest.raises(InvalidParameterError, match="tokenizer_encoding"):
+            await impl._maybe_auto_compact(
+                input="some text here",
+                model="unknown-model",
+                context_management=context_management,
+                previous_usage=None,
+                extra_body={"tokenizer_encoding": "bogus"},
+            )
+
+
+class TestCompactEndpointExtraBody:
+    """Verify compact_openai_response accepts extra_body for tokenizer override."""
+
+    def test_compact_openai_response_signature_accepts_extra_body(self):
+        """Verify the method signature accepts extra_body parameter."""
+        import inspect
+
+        sig = inspect.signature(OpenAIResponsesImpl.compact_openai_response)
+        assert "extra_body" in sig.parameters

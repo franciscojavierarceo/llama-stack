@@ -6,10 +6,11 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+import tiktoken
+from pydantic import BaseModel, Field, field_validator
 
 from ogx.core.datatypes import VectorStoresConfig
-from ogx.core.storage.datatypes import KVStoreReference, ResponsesStoreReference
+from ogx.core.storage.datatypes import ResponsesStoreReference
 
 DEFAULT_SUMMARIZATION_PROMPT = (
     "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary "
@@ -52,7 +53,12 @@ class CompactionConfig(BaseModel):
     )
     tokenizer_encoding: str | None = Field(
         default=None,
-        description="Tiktoken encoding name for token counting (e.g. 'o200k_base', 'cl100k_base'). If not set, the encoding is resolved from the model name via tiktoken.encoding_for_model().",
+        description=(
+            "Default tiktoken encoding name for token counting (e.g. 'o200k_base', 'cl100k_base'). "
+            "Applied as a server-level default after any per-request override via extra_body. "
+            "If not set, encoding is resolved from the model name via tiktoken, then model-family "
+            "prefix mappings, then character-based estimation."
+        ),
     )
     model_tokenizer_mappings: dict[str, str] = Field(
         default_factory=lambda: {
@@ -73,11 +79,36 @@ class CompactionConfig(BaseModel):
         ),
     )
 
+    @field_validator("tokenizer_encoding")
+    @classmethod
+    def validate_tokenizer_encoding(cls, v: str | None) -> str | None:
+        if v is not None:
+            try:
+                tiktoken.get_encoding(v)
+            except ValueError:
+                raise ValueError(
+                    f"Failed to resolve tokenizer_encoding '{v}'. "
+                    "Must be a valid tiktoken encoding name (e.g. 'o200k_base', 'cl100k_base')."
+                ) from None
+        return v
+
+    @field_validator("model_tokenizer_mappings")
+    @classmethod
+    def validate_model_tokenizer_mappings(cls, v: dict[str, str]) -> dict[str, str]:
+        for prefix, enc_name in v.items():
+            try:
+                tiktoken.get_encoding(enc_name)
+            except ValueError:
+                raise ValueError(
+                    f"Failed to resolve model_tokenizer_mappings['{prefix}'] = '{enc_name}'. "
+                    "Must be a valid tiktoken encoding name (e.g. 'o200k_base', 'cl100k_base')."
+                ) from None
+        return v
+
 
 class ResponsesPersistenceConfig(BaseModel):
     """Nested persistence configuration for the responses provider."""
 
-    agent_state: KVStoreReference
     responses: ResponsesStoreReference
 
 
@@ -96,14 +127,17 @@ class BuiltinResponsesImplConfig(BaseModel):
         description="Configuration for conversation compaction behavior and prompt templates",
     )
 
+    moderation_endpoint: str | None = Field(
+        default=None,
+        description="URL of an OpenAI-compatible /v1/moderations endpoint for guardrails. "
+        'The endpoint must accept POST {"input": "text"} and return '
+        '{"results": [{"flagged": bool, "categories": {...}}]}.',
+    )
+
     @classmethod
     def sample_run_config(cls, __distro_dir__: str) -> dict[str, Any]:
         return {
             "persistence": {
-                "agent_state": KVStoreReference(
-                    backend="kv_default",
-                    namespace="agents",
-                ).model_dump(exclude_none=True),
                 "responses": ResponsesStoreReference(
                     backend="sql_default",
                     table_name="responses",
