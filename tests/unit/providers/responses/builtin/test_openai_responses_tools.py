@@ -558,6 +558,60 @@ async def test_file_search_results_include_chunk_metadata_attributes(mock_vector
     ]
 
 
+async def test_file_search_applies_global_max_results_across_vector_stores(mock_vector_io_api):
+    query = "What is machine learning?"
+
+    def search_result(file_id: str, text: str, score: float) -> VectorStoreSearchResponse:
+        return VectorStoreSearchResponse(
+            file_id=file_id,
+            filename=f"{file_id}.md",
+            content=[VectorStoreContent(type="text", text=text)],
+            score=score,
+            attributes={"document_id": file_id},
+        )
+
+    mock_vector_io_api.openai_search_vector_store.side_effect = [
+        VectorStoreSearchResponsePage(
+            search_query=[query],
+            has_more=False,
+            data=[
+                search_result("doc-low", "lower relevance", 0.25),
+                search_result("doc-high", "highest relevance", 0.95),
+            ],
+        ),
+        VectorStoreSearchResponsePage(
+            search_query=[query],
+            has_more=False,
+            data=[
+                search_result("doc-mid", "middle relevance", 0.65),
+                search_result("doc-lower", "lowest relevance", 0.15),
+            ],
+        ),
+    ]
+
+    tool_executor = ToolExecutor(
+        tool_groups_api=None,  # type: ignore
+        tool_runtime_api=None,  # type: ignore
+        vector_io_api=mock_vector_io_api,
+        vector_stores_config=VectorStoresConfig(),
+        mcp_session_manager=None,
+    )
+
+    result = await tool_executor._execute_file_search_via_vector_store(
+        query=query,
+        response_file_search_tool=OpenAIResponseInputToolFileSearch(
+            vector_store_ids=["store-a", "store-b"],
+            max_num_results=2,
+        ),
+    )
+
+    assert mock_vector_io_api.openai_search_vector_store.call_count == 2
+    assert result.metadata is not None
+    assert result.metadata["document_ids"] == ["doc-high", "doc-mid"]
+    assert result.metadata["scores"] == [0.95, 0.65]
+    assert result.metadata["chunks"] == ["highest relevance", "middle relevance"]
+
+
 async def test_tool_call_arguments_arrive_in_subsequent_delta(openai_responses_impl, mock_inference_api):
     """Test that tool call arguments are correctly accumulated when the model streams
     arguments=None in the first delta and actual arguments in a subsequent delta.

@@ -168,6 +168,8 @@ class ToolExecutor:
         # Flatten results
         for results in all_results:
             search_results.extend(results)
+        max_num_results = response_file_search_tool.max_num_results or 10
+        search_results = sorted(search_results, key=lambda result: result.score, reverse=True)[:max_num_results]
 
         # Get templates from vector stores config, fallback to constants
 
