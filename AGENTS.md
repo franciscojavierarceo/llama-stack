@@ -33,6 +33,10 @@ tests/
 - **Python 3.12** is required. Pre-commit hooks only work with 3.12.
 - Use `uv` for all dependency management and script execution.
 - Run scripts with `uv run`, never bare `python3` or `python`.
+- Before reporting a local `uv run ...` validation failure, check `uv --version`
+  against `[tool.uv].required-version` in `pyproject.toml`. If the local `uv`
+  is too old, state that the command did not start because of the local tool
+  version rather than treating it as a test failure.
 - Use standard library modules when possible.
 - All function signatures must have type hints. Prefer Pydantic models for validation.
 - Code must pass `mypy`. Check the exclude list in `pyproject.toml` for known exceptions.
@@ -61,6 +65,9 @@ tests/
 - Use `git merge main` to update branches, not `git rebase`.
 - Commit messages must use [conventional commits](https://www.conventionalcommits.org/)
   format and full sentences, not bullet points.
+- PR titles must also use conventional commit format, for example
+  `fix: Cap file search results across vector stores`. Do not prefix PR titles
+  with `[codex]`; the semantic title check treats that as a CI failure.
 - Merge `upstream/main` before pushing a branch to avoid CI failures from stale code.
 
 ## Testing
