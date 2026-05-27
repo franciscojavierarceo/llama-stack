@@ -28,6 +28,8 @@ OGX is an API compatibility layer, not an infrastructure orchestrator. The `Cont
 | `inline::openshell` | [OpenShell](https://docs.nvidia.com/openshell/latest/home) Gateway API | OpenShell Gateway | Policy-enforced isolation with your choice of compute driver (Docker, Podman, MicroVM, or K8s). The Gateway owns the full sandbox lifecycle — when backed by K8s, the Gateway creates and manages sandbox pods directly. |
 | `remote::kubernetes` | Kubernetes API | K8s cluster (no OpenShell) | Direct pod submission. OGX sets `sandbox_required: true`; the cluster enforces isolation via native mechanisms (RuntimeClass, NetworkPolicy, etc.). |
 
+`inline::docker` is `inline::` (not `remote::`) because the provider code ships in-tree and manages container lifecycle directly. Docker's API is the same whether the daemon is local or remote — you just change the socket URL — so there's no need for a separate `remote::docker` provider.
+
 The key distinction between `inline::openshell` on K8s and `remote::kubernetes` is **who owns sandbox policy**. With `inline::openshell`, OGX controls policy through the OpenShell Gateway, which runs as a StatefulSet and creates sandbox pods in a configured namespace. With `remote::kubernetes`, OGX submits pods and the cluster handles everything — OGX doesn't know or care how sandboxing is enforced.
 
 ```text
