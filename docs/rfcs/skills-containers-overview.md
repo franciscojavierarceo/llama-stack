@@ -2,7 +2,7 @@
 
 **Authors:** Francisco Javier Arceo, Varsha Prasad Narsing
 **Status:** Draft | **Date:** 2026-05-14
-**Full ADR:** [`docs/adrs/0002-skills-containers-api.md`](../adrs/0002-skills-containers-api.md)
+**Implementation reference:** [`skills-containers-implementation-ref.md`](skills-containers-implementation-ref.md) (data models, protocols, file structure)
 
 ## What and why
 
@@ -106,6 +106,6 @@ Matches [OpenAI's posture](https://developers.openai.com/api/docs/guides/tools-s
 
 ## References
 
-- [Full ADR (data models, protocols, file structure)](../adrs/0002-skills-containers-api.md)
+- [Implementation reference (data models, protocols, file structure)](skills-containers-implementation-ref.md)
 - [OpenAI Skills API](https://developers.openai.com/api/docs/guides/tools-skills) | [Containers API](https://developers.openai.com/api/reference/resources/containers) | [Shell Tool](https://developers.openai.com/api/docs/guides/tools-shell) | [Code Interpreter](https://developers.openai.com/api/docs/guides/tools-code-interpreter#containers)
 - [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) | [Agent Skills Standard](https://agentskills.io)
